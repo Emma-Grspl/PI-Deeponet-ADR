@@ -10,7 +10,7 @@ class Config:
     # T_max définit la borne supérieure maximale de la simulation.
     T_max = 2.0  
     
-    dt = 0.5
+    dt = 0.25
     
     # Nombre de pas de temps total (calculé automatiquement)
     Nt = int(np.ceil(T_max / dt))
@@ -72,20 +72,20 @@ class Config:
     
     epochs = 10000            # Nombre global d'époques (si utilisé hors smart loop)
     n_warmup = 15000          # Itérations pour figer t=0
-    n_iters_per_step = 15000  # Itérations par palier de temps
+    n_iters_per_step = 5000  # Itérations par palier de temps
     
     n_sample = 2000           # Points de collocation
     batch_size = 4096         # Taille de lot (V100 friendly)
     
-    max_retry = 3             # Nombre d'essais en cas d'échec
+    max_retry = 4            # Nombre d'essais en cas d'échec
     threshold = 0.03          # Seuil d'erreur relative pour valider un palier
 
     # -------------------------------------------------------------------------
     # 5. FONCTION DE COÛT (Loss Weights)
     # -------------------------------------------------------------------------
-    weight_res = 100.0   # Résidu EDP
+    weight_res = 90.0   # Résidu EDP
     weight_ic = 150.0    # Condition Initiale
-    weight_bc = 20.0     # Conditions aux limites
+    weight_bc = 90.0     # Conditions aux limites
 
     # -------------------------------------------------------------------------
     # 6. SOLVEUR & AUDIT

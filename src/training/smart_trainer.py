@@ -87,6 +87,7 @@ def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
     
     w_res = Config.weight_res
     w_ic = Config.weight_ic
+    w_bc = Config.weight_bc  # 🔥 MODIFICATION : On récupère le poids des BC
     
     lr_base = Config.learning_rate 
     
@@ -94,33 +95,39 @@ def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
     optimizer = optim.Adam(model.parameters(), lr=lr_base)
     model.train()
     
-    # --- MODIFICATION ICI : On utilise enumerate pour avoir l'index 'i' ---
     pbar = tqdm(range(n_iters_main), desc=f"Train T={t_max:.1f}", leave=False)
     for i in pbar:
         optimizer.zero_grad()
         
-        # Génération du batch
-        params, xt, xt_ic, u_true_ic = generate_mixed_batch(
+        # 🔥 MODIFICATION : On récupère 6 valeurs maintenant !
+        params, xt, xt_ic, u_true_ic, xt_bc_left, xt_bc_right = generate_mixed_batch(
             batch_size, bounds, Config.x_min, Config.x_max, t_max
         )
         
-        # Calcul Loss
+        # Calcul Loss PDE
         loss_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
+        
+        # Calcul Loss IC
         loss_ic = torch.mean((model(params, xt_ic) - u_true_ic)**2)
         
-        loss = (w_res * loss_pde) + (w_ic * loss_ic)
+        # 🔥 MODIFICATION : Calcul Loss BC (Périodique : Gauche - Droite = 0)
+        u_pred_left = model(params, xt_bc_left)
+        u_pred_right = model(params, xt_bc_right)
+        loss_bc = torch.mean((u_pred_left - u_pred_right)**2)
+        
+        # 🔥 MODIFICATION : Somme totale avec les 3 composantes
+        loss = (w_res * loss_pde) + (w_ic * loss_ic) + (w_bc * loss_bc)
         
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
 
-        # --- AJOUT : Monitoring ---
-        # 1. Mise à jour de la barre de progression en temps réel
+        # Monitoring
         pbar.set_postfix({'loss': f"{loss.item():.2e}"})
         
-        # 2. Print historique toutes les 500 itérations
         if (i + 1) % 500 == 0:
-            pbar.write(f"    [Main] Iter {i+1}/{n_iters_main} | Loss: {loss.item():.6e} (PDE: {loss_pde.item():.2e}, IC: {loss_ic.item():.2e})")
+            # 🔥 MODIFICATION : J'ajoute l'affichage de la Loss BC
+            pbar.write(f"    [Main] Iter {i+1}/{n_iters_main} | Loss: {loss.item():.6e} (PDE: {loss_pde:.1e}, IC: {loss_ic:.1e}, BC: {loss_bc:.1e})")
 
     # Audit après le main try
     success, err = audit_time_window(model, t_max, bounds)
@@ -132,23 +139,27 @@ def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
         current_lr = lr_base / (2 ** attempt)
         print(f"    ⚠️ Retry {attempt+1}/{max_retries} (LR={current_lr:.1e}, Err: {err:.2%})...")
         
-        # Cas spécial : LBFGS (Pas de boucle for standard, mais on peut printer dans la closure)
+        # Cas spécial : LBFGS
         if use_lbfgs and attempt == max_retries - 1:
             lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=50, line_search_fn="strong_wolfe")
-            
-            # Compteur pour LBFGS (hack pour le print)
             lbfgs_iter_count = [0] 
 
             def closure():
                 lbfgs.zero_grad()
-                params, xt, xt_ic, u_true_ic = generate_mixed_batch(batch_size, bounds, Config.x_min, Config.x_max, t_max)
+                # 🔥 MODIFICATION : Unpacking 6 valeurs pour LBFGS aussi
+                params, xt, xt_ic, u_true_ic, xt_bc_left, xt_bc_right = generate_mixed_batch(batch_size, bounds, Config.x_min, Config.x_max, t_max)
                 
                 loss_pde_val = torch.mean(pde_residual_adr(model, params, xt)**2)
                 loss_ic_val = torch.mean((model(params, xt_ic) - u_true_ic)**2)
-                loss = w_res * loss_pde_val + w_ic * loss_ic_val
+                
+                # 🔥 MODIFICATION : Loss BC dans LBFGS
+                u_left = model(params, xt_bc_left)
+                u_right = model(params, xt_bc_right)
+                loss_bc_val = torch.mean((u_left - u_right)**2)
+                
+                loss = w_res * loss_pde_val + w_ic * loss_ic_val + w_bc * loss_bc_val
                 loss.backward()
                 
-                # Petit print pour LBFGS (souvent peu d'itérations, donc on print toutes les 10)
                 lbfgs_iter_count[0] += 1
                 if lbfgs_iter_count[0] % 10 == 0:
                      print(f"    [LBFGS] Step {lbfgs_iter_count[0]} | Loss: {loss.item():.6e}")
@@ -163,21 +174,26 @@ def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
             optimizer_retry = optim.Adam(model.parameters(), lr=current_lr)
             n_retry_iters = n_iters_main + (1000 * attempt) 
             
-            # --- MODIFICATION ICI AUSSI ---
             pbar_retry = tqdm(range(n_retry_iters), desc=f"Retry #{attempt+1}", leave=False)
             for i in pbar_retry: 
                 optimizer_retry.zero_grad()
-                params, xt, xt_ic, u_true_ic = generate_mixed_batch(batch_size, bounds, Config.x_min, Config.x_max, t_max)
+                # 🔥 MODIFICATION : Unpacking 6 valeurs
+                params, xt, xt_ic, u_true_ic, xt_bc_left, xt_bc_right = generate_mixed_batch(batch_size, bounds, Config.x_min, Config.x_max, t_max)
                 
                 loss_pde_val = torch.mean(pde_residual_adr(model, params, xt)**2)
                 loss_ic_val = torch.mean((model(params, xt_ic) - u_true_ic)**2)
-                loss = w_res * loss_pde_val + w_ic * loss_ic_val
+                
+                # 🔥 MODIFICATION : Loss BC
+                u_left = model(params, xt_bc_left)
+                u_right = model(params, xt_bc_right)
+                loss_bc_val = torch.mean((u_left - u_right)**2)
+                
+                loss = w_res * loss_pde_val + w_ic * loss_ic_val + w_bc * loss_bc_val
                 
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer_retry.step()
                 
-                # --- AJOUT : Monitoring Retry ---
                 pbar_retry.set_postfix({'loss': f"{loss.item():.2e}"})
                 
                 if (i + 1) % 500 == 0:
@@ -208,25 +224,27 @@ def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
         optimizer = optim.Adam(model.parameters(), lr=Config.learning_rate)
         model.train()
         
-        # --- MODIFICATION ICI : Warmup ---
         pbar_warmup = tqdm(range(n_warmup), desc="Warmup IC")
         for i in pbar_warmup:
             optimizer.zero_grad()
-            params, xt, xt_ic, u_true_ic = generate_mixed_batch(
+            
+            # 🔥 MODIFICATION CRITIQUE : Le générateur renvoie maintenant 6 valeurs
+            # Même si on n'utilise pas les BCs pour le warmup (t=0), il faut les déballer avec `_`
+            params, xt, xt_ic, u_true_ic, _, _ = generate_mixed_batch(
                 batch_size, bounds, Config.x_min, Config.x_max, 0.0
             )
+            
             u_pred_ic = model(params, xt_ic)
             loss = torch.mean((u_pred_ic - u_true_ic)**2)
+            
             loss.backward()
             optimizer.step()
             
-            # --- AJOUT : Monitoring Warmup ---
             pbar_warmup.set_postfix({'loss_ic': f"{loss.item():.2e}"})
             
             if (i + 1) % 500 == 0:
                  pbar_warmup.write(f"    [Warmup] Iter {i+1}/{n_warmup} | Loss IC: {loss.item():.6e}")
         
-        # Sauvegarde post-warmup
         torch.save(model.state_dict(), os.path.join(save_dir, "model_post_warmup.pth"))
         print("    ✅ Warmup terminé et sauvegardé.")
 
@@ -252,7 +270,6 @@ def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
         else:
             print(f"    ❌ PALIER NON VALIDÉ (Err: {final_err:.2%}). Expansion forcée.")
         
-        # --- SAUVEGARDE INTERMÉDIAIRE À CHAQUE DT ---
         checkpoint_name = f"model_checkpoint_t{t_step}.pth"
         checkpoint_path = os.path.join(save_dir, checkpoint_name)
         torch.save({
