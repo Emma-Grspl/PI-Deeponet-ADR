@@ -10,7 +10,7 @@ class Config:
     # T_max définit la borne supérieure maximale de la simulation.
     T_max = 2.0  
     
-    dt = 0.25
+    dt = 0.2
     
     # Nombre de pas de temps total (calculé automatiquement)
     Nt = int(np.ceil(T_max / dt))
@@ -24,7 +24,7 @@ class Config:
         'D': (0.01, 0.2),
         'mu': (0.0, 1.0),
         'A': (0.8, 1.2),
-        'x0': (0.0, 0.0),      
+        'x0': (-0.5, 0.5),      
         'sigma': (0.4, 0.8),
         'k': (1.0, 3.0)
     }
@@ -63,15 +63,15 @@ class Config:
     
     # Encodage de Fourier (Trunk)
     nFourier = 64
-    sFourier = [0.0, 1.0, 2.0]
+    sFourier = [0.0, 1.0, 2.0, 5.0]
 
     # -------------------------------------------------------------------------
     # 4. HYPERPARAMÈTRES D'ENTRAÎNEMENT
     # -------------------------------------------------------------------------
-    learning_rate = 5e-4      # LR de base
+    learning_rate = 3e-4      # LR de base
     
     epochs = 10000            # Nombre global d'époques (si utilisé hors smart loop)
-    n_warmup = 15000          # Itérations pour figer t=0
+    n_warmup = 5000          # Itérations pour figer t=0
     n_iters_per_step = 5000  # Itérations par palier de temps
     
     n_sample = 2000           # Points de collocation

@@ -12,6 +12,7 @@ src_path = os.path.join(project_root, 'src')
 if src_path not in sys.path:
     sys.path.append(src_path)
 
+
 # --- IMPORTS ---
 try:
     from config import Config
@@ -43,9 +44,16 @@ def main():
     print(f"   - Iters/Step: {Config.n_iters_per_step}")
 
     # 2. DEVICE
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"📱 Device détecté : {device}")
-
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print("📱 Device : CUDA (Nvidia)")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+        print("📱 Device : MPS (Mac M1/M2/M3)")
+    else:
+        device = torch.device("cpu")
+        print("📱 Device : CPU")
+    
     # 3. INITIALISATION MODÈLE
     model = PI_DeepONet_ADR().to(device)
 

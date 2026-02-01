@@ -113,3 +113,69 @@ def get_validation_data_adr(N0, Nb, ic_kind="mixed", bc_kind="periodic",
         "bc_kind": bc_kind
     }
     return data
+def generate_mixed_batch(n_samples, bounds_phy=None, x_min=None, x_max=None, Tmax=None, allowed_types=None):
+    """
+    Génère un batch d'entraînement. 
+    allowed_types (list) : permet de forcer certains types (pour le Smart Training).
+    """
+    # 1. Chargement des valeurs par défaut
+    if bounds_phy is None: bounds_phy = Config.ranges
+    if x_min is None: x_min = Config.x_min
+    if x_max is None: x_max = Config.x_max
+    if Tmax is None: Tmax = Config.T_max 
+
+    # 2. Paramètres Physiques (v, D, mu)
+    v = np.random.uniform(bounds_phy['v'][0], bounds_phy['v'][1], (n_samples, 1))
+    D = np.random.uniform(bounds_phy['D'][0], bounds_phy['D'][1], (n_samples, 1))
+    mu = np.random.uniform(bounds_phy['mu'][0], bounds_phy['mu'][1], (n_samples, 1))
+    
+    # --- LOGIQUE DE SÉLECTION DES TYPES (SMART TRAINING) ---
+    if allowed_types is not None and len(allowed_types) > 0:
+        # On ne choisit que parmi les types "malades"
+        # np.random.choice attend un tableau 1D pour le premier argument
+        types = np.random.choice(allowed_types, size=(n_samples, 1))
+    else:
+        # Comportement standard (Tout le monde : 0, 1, 2, 3, 4)
+        types = np.random.choice([0, 1, 2, 3, 4], size=(n_samples, 1))
+
+    # 3. Paramètres IC (A, x0, sigma, k)
+    A = np.random.uniform(bounds_phy['A'][0], bounds_phy['A'][1], (n_samples, 1))
+    x0 = np.random.uniform(bounds_phy['x0'][0], bounds_phy['x0'][1], (n_samples, 1))
+    sigma = np.random.uniform(bounds_phy['sigma'][0], bounds_phy['sigma'][1], (n_samples, 1))
+    k = np.random.uniform(bounds_phy['k'][0], bounds_phy['k'][1], (n_samples, 1))
+
+    # Vecteur paramètres complet
+    params_vec = np.hstack((v, D, mu, types, A, x0, sigma, k))
+
+    # 4. Points Collocation (Interieur du domaine pour PDE)
+    x = np.random.uniform(x_min, x_max, (n_samples, 1))
+    t = np.random.uniform(0, Tmax, (n_samples, 1))
+    xt = np.hstack((x, t))
+
+    # 5. Points IC (t=0)
+    x_ic = np.random.uniform(x_min, x_max, (n_samples, 1))
+    xt_ic = np.hstack((x_ic, np.zeros_like(x_ic)))
+
+    # Calcul vérité terrain IC
+    u_true_ic = np.zeros((n_samples, 1))
+    for i in range(n_samples):
+        p_dict = {
+            "type": types[i,0], "A": A[i,0], 
+            "x0": x0[i,0], "sigma": sigma[i,0], "k": k[i,0]
+        }
+        u_true_ic[i] = get_ic_value(x_ic[i,0], "mixed", p_dict)
+
+    # 6. Points BC (Bords Gauche et Droite)
+    t_bc = np.random.uniform(0, Tmax, (n_samples, 1))
+    x_left = np.full((n_samples, 1), x_min)
+    x_right = np.full((n_samples, 1), x_max)
+    xt_bc_left = np.hstack((x_left, t_bc))
+    xt_bc_right = np.hstack((x_right, t_bc))
+
+    # 7. Renvoi des Tensors
+    return (torch.FloatTensor(params_vec).to(DEVICE),
+            torch.FloatTensor(xt).to(DEVICE),       
+            torch.FloatTensor(xt_ic).to(DEVICE),    
+            torch.FloatTensor(u_true_ic).to(DEVICE),
+            torch.FloatTensor(xt_bc_left).to(DEVICE),  
+            torch.FloatTensor(xt_bc_right).to(DEVICE))
