@@ -14,6 +14,9 @@ from src.data.generators import generate_mixed_batch
 from src.physics.solver import get_ground_truth_CN
 from src.visualization.plots import evaluate_global_accuracy
 
+# --- AJOUT ICI ---
+from src.audit_tool import diagnose_model
+
 def audit_time_window(model, current_t_max, bounds):
     """ 
     Audit rapide utilisant les paramètres de Config.
@@ -75,23 +78,24 @@ def audit_time_window(model, current_t_max, bounds):
 
 def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
     """ 
-    Fonction Ouvrier : Entraîne le modèle sur la fenêtre [0, t_max].
-    Gère les tentatives (retries) avec décroissance du learning rate.
+    Entraîne sur [0, t_max] avec diagnostic et correction ciblée (Smart Training).
     """
     device = next(model.parameters()).device
     
-    # Récupération hyperparamètres Config
+    # Config
     target_error = Config.threshold
     batch_size = Config.batch_size
-    max_retries = Config.max_retry
+    max_retries = Config.max_retry # Utilisé pour les boucles de correction
     
     w_res = Config.weight_res
     w_ic = Config.weight_ic
-    w_bc = Config.weight_bc  # 🔥 MODIFICATION : On récupère le poids des BC
+    w_bc = Config.weight_bc
     
     lr_base = Config.learning_rate 
     
-    # --- 1. MAIN TRY ---
+    # ====================================================
+    # 1. MAIN TRAINING (Entraînement Global)
+    # ====================================================
     optimizer = optim.Adam(model.parameters(), lr=lr_base)
     model.train()
     
@@ -99,112 +103,108 @@ def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
     for i in pbar:
         optimizer.zero_grad()
         
-        # 🔥 MODIFICATION : On récupère 6 valeurs maintenant !
+        # Génération STANDARD (tous les types)
         params, xt, xt_ic, u_true_ic, xt_bc_left, xt_bc_right = generate_mixed_batch(
-            batch_size, bounds, Config.x_min, Config.x_max, t_max
+            batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=None
         )
         
-        # Calcul Loss PDE
+        # Calcul des Loss (Code identique)
         loss_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
-        
-        # Calcul Loss IC
         loss_ic = torch.mean((model(params, xt_ic) - u_true_ic)**2)
-        
-        # 🔥 MODIFICATION : Calcul Loss BC (Périodique : Gauche - Droite = 0)
         u_pred_left = model(params, xt_bc_left)
         u_pred_right = model(params, xt_bc_right)
         loss_bc = torch.mean((u_pred_left - u_pred_right)**2)
         
-        # 🔥 MODIFICATION : Somme totale avec les 3 composantes
         loss = (w_res * loss_pde) + (w_ic * loss_ic) + (w_bc * loss_bc)
         
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
 
-        # Monitoring
-        pbar.set_postfix({'loss': f"{loss.item():.2e}"})
-        
         if (i + 1) % 500 == 0:
-            # 🔥 MODIFICATION : J'ajoute l'affichage de la Loss BC
-            pbar.write(f"    [Main] Iter {i+1}/{n_iters_main} | Loss: {loss.item():.6e} (PDE: {loss_pde:.1e}, IC: {loss_ic:.1e}, BC: {loss_bc:.1e})")
+            pbar.set_postfix({'loss': f"{loss.item():.2e}"})
 
-    # Audit après le main try
-    success, err = audit_time_window(model, t_max, bounds)
-    if success: 
-        return True, err
-
-    # --- 2. RETRIES LOOP ---
-    for attempt in range(max_retries):
-        current_lr = lr_base / (2 ** attempt)
-        print(f"    ⚠️ Retry {attempt+1}/{max_retries} (LR={current_lr:.1e}, Err: {err:.2%})...")
+    # ====================================================
+    # 2. DIAGNOSTIC & CORRECTION CIBLÉE (SMART LOOP)
+    # ====================================================
+    # On tente de corriger jusqu'à max_retries fois
+    for attempt in range(max_retries + 1):
         
-        # Cas spécial : LBFGS
-        if use_lbfgs and attempt == max_retries - 1:
-            lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=50, line_search_fn="strong_wolfe")
-            lbfgs_iter_count = [0] 
+        # A. DIAGNOSTIC : Qui est malade ?
+        # Note: diagnose_model utilise son propre seuil (ex: 3% ou 5%)
+        failed_ids = diagnose_model(model, device, threshold=target_error)
+        
+        # Si tout le monde va bien, on vérifie l'audit global et on sort
+        if not failed_ids:
+            success, err = audit_time_window(model, t_max, bounds)
+            if success:
+                return True, err
+            else:
+                # Cas rare : Diagnostic OK mais Audit Global KO -> On force un tour général
+                print(f"    ⚠️ Diagnostic OK mais Audit Global KO ({err:.2%}). On continue...")
+        else:
+            print(f"    ⚠️ PROBLÈMES SUR LES TYPES : {failed_ids}")
 
+        # Si on est au dernier essai, on tente le LBFGS (l'arme ultime)
+        if attempt == max_retries:
+            print(f"    🚑 DERNIER RECOURS : LBFGS...")
+            lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=50, line_search_fn="strong_wolfe")
+            
             def closure():
                 lbfgs.zero_grad()
-                # 🔥 MODIFICATION : Unpacking 6 valeurs pour LBFGS aussi
-                params, xt, xt_ic, u_true_ic, xt_bc_left, xt_bc_right = generate_mixed_batch(batch_size, bounds, Config.x_min, Config.x_max, t_max)
-                
-                loss_pde_val = torch.mean(pde_residual_adr(model, params, xt)**2)
-                loss_ic_val = torch.mean((model(params, xt_ic) - u_true_ic)**2)
-                
-                # 🔥 MODIFICATION : Loss BC dans LBFGS
-                u_left = model(params, xt_bc_left)
-                u_right = model(params, xt_bc_right)
-                loss_bc_val = torch.mean((u_left - u_right)**2)
-                
-                loss = w_res * loss_pde_val + w_ic * loss_ic_val + w_bc * loss_bc_val
+                # On utilise failed_ids si dispo, sinon tout le monde pour le LBFGS
+                types_for_lbfgs = failed_ids if failed_ids else None
+                params, xt, xt_ic, u_true_ic, xt_bc_left, xt_bc_right = generate_mixed_batch(
+                    batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=types_for_lbfgs
+                )
+                loss_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
+                loss_ic = torch.mean((model(params, xt_ic) - u_true_ic)**2)
+                loss_bc = torch.mean((model(params, xt_bc_left) - model(params, xt_bc_right))**2)
+                loss = w_res * loss_pde + w_ic * loss_ic + w_bc * loss_bc
                 loss.backward()
-                
-                lbfgs_iter_count[0] += 1
-                if lbfgs_iter_count[0] % 10 == 0:
-                     print(f"    [LBFGS] Step {lbfgs_iter_count[0]} | Loss: {loss.item():.6e}")
-                
                 return loss
             
             try: lbfgs.step(closure)
             except: pass
-        
-        else:
-            # Adam Retry Loop
-            optimizer_retry = optim.Adam(model.parameters(), lr=current_lr)
-            n_retry_iters = n_iters_main + (1000 * attempt) 
             
-            pbar_retry = tqdm(range(n_retry_iters), desc=f"Retry #{attempt+1}", leave=False)
-            for i in pbar_retry: 
-                optimizer_retry.zero_grad()
-                # 🔥 MODIFICATION : Unpacking 6 valeurs
-                params, xt, xt_ic, u_true_ic, xt_bc_left, xt_bc_right = generate_mixed_batch(batch_size, bounds, Config.x_min, Config.x_max, t_max)
-                
-                loss_pde_val = torch.mean(pde_residual_adr(model, params, xt)**2)
-                loss_ic_val = torch.mean((model(params, xt_ic) - u_true_ic)**2)
-                
-                # 🔥 MODIFICATION : Loss BC
-                u_left = model(params, xt_bc_left)
-                u_right = model(params, xt_bc_right)
-                loss_bc_val = torch.mean((u_left - u_right)**2)
-                
-                loss = w_res * loss_pde_val + w_ic * loss_ic_val + w_bc * loss_bc_val
-                
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer_retry.step()
-                
-                pbar_retry.set_postfix({'loss': f"{loss.item():.2e}"})
-                
-                if (i + 1) % 500 == 0:
-                    pbar_retry.write(f"    [Retry #{attempt+1}] Iter {i+1} | Loss: {loss.item():.6e}")
+            # Audit final après LBFGS
+            success, err = audit_time_window(model, t_max, bounds)
+            return success, err
 
-        # Nouvel audit
-        success, err = audit_time_window(model, t_max, bounds)
-        if success: return True, err
+        # B. FOCUS TRAINING : On ne s'entraîne QUE sur les malades
+        # On réduit un peu le LR pour le fine-tuning
+        lr_focus = lr_base / (2 ** (attempt + 1))
+        optimizer_focus = optim.Adam(model.parameters(), lr=lr_focus)
+        
+        # Nombre d'itérations de correction (ex: 2000 iters)
+        n_focus_iters = n_iters_main // 2 
+        
+        pbar_focus = tqdm(range(n_focus_iters), desc=f"Correction #{attempt+1} {failed_ids}", leave=False)
+        for i in pbar_focus:
+            optimizer_focus.zero_grad()
+            
+            # 🔥 MAGIE : On force allowed_types=failed_ids
+            params, xt, xt_ic, u_true_ic, xt_bc_left, xt_bc_right = generate_mixed_batch(
+                batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=failed_ids
+            )
+            
+            loss_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
+            loss_ic = torch.mean((model(params, xt_ic) - u_true_ic)**2)
+            loss_bc = torch.mean((model(params, xt_bc_left) - model(params, xt_bc_right))**2)
+            
+            loss = (w_res * loss_pde) + (w_ic * loss_ic) + (w_bc * loss_bc)
+            
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer_focus.step()
+            
+            if (i+1) % 500 == 0:
+                pbar_focus.set_postfix({'loss': f"{loss.item():.2e}"})
 
-    return False, err
-
+    # Si on arrive ici, c'est qu'on a épuisé les retries
+    success, err = audit_time_window(model, t_max, bounds)
+    return success, err
+    
 def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
     """
     Orchestrateur principal avec sauvegardes intermédiaires à chaque dt.
