@@ -188,16 +188,22 @@ def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
         optimizer = optim.Adam(model.parameters(), lr=Config.learning_rate)
         model.train()
         pbar = tqdm(range(n_warmup))
+        
         for i in pbar:
             optimizer.zero_grad()
-            params, xt, xt_ic, u_true_ic, _, _ = generate_mixed_batch(
+            
+            # --- CORRECTION ICI : On récupère 8 valeurs (on ignore les 4 dernières avec _) ---
+            # Avant c'était : params, xt, xt_ic, u_true_ic, _, _ = ...
+            params, xt, xt_ic, u_true_ic, _, _, _, _ = generate_mixed_batch(
                 Config.batch_size, bounds, Config.x_min, Config.x_max, 0.0
             )
+            
+            # Loss uniquement sur la condition initiale (IC)
             loss = torch.mean((model(params, xt_ic) - u_true_ic)**2)
+            
             loss.backward()
             optimizer.step()
             
-            # --- MODIFICATION ICI : Print tous les 500 itérations ---
             if (i + 1) % 500 == 0: 
                 msg = f"    [Warmup] Iter {i+1} | Loss IC: {loss.item():.2e}"
                 tqdm.write(msg)
@@ -210,6 +216,7 @@ def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
     time_steps = [round(t, 2) for t in np.arange(Config.dt, T_end + Config.dt/1000.0, Config.dt)]
     
     for t_step in time_steps:
+        # Appel de la fonction d'entraînement par palier (déjà corrigée précédemment)
         success, _ = train_step_time_window(model, bounds, t_max=t_step, n_iters_main=n_iters_per_step)
         
         if success:
