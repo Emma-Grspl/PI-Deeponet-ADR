@@ -97,7 +97,7 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
         
         if success: # Si moyenne < 3%
             print(f"     📊 Audit Global OK ({err:.2%}). Vérification spécifique...")
-            failed_check = diagnose_model(model, device, threshold=Config.threshold) # Seuil strict (3%)
+            failed_check = diagnose_model(model, device, threshold=Config.threshold, t_max=t_max) # Seuil strict (3%)
             
             if not failed_check:
                 print("     ✅ Validation Totale : Toutes les familles sont sous le seuil.")
@@ -117,7 +117,7 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
     # =========================================================================
     
     # On récupère les IDs malades actuels
-    failed_ids = diagnose_model(model, device, threshold=Config.threshold)
+    failed_ids = diagnose_model(model, device, threshold=Config.threshold, t_max = t_max)
     all_types = [0, 1, 2, 3, 4]
     success_ids = [t for t in all_types if t not in failed_ids]
 
@@ -140,7 +140,7 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
         if (i+1)%1000==0: print(f"    [Focus Adam] Iter {i+1} | Loss: {loss.item():.2e}")
 
     # Check intermédiaire strict
-    failed_ids_2 = diagnose_model(model, device, threshold=Config.threshold)
+    failed_ids_2 = diagnose_model(model, device, threshold=Config.threshold, t_max = t_max)
     if not failed_ids_2:
         print("✅ Correction réussie ! (Seuil Strict)")
         return True, 0.0
@@ -180,7 +180,7 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
     # Ici on accepte jusqu'à 4% (0.04) pour ne pas bloquer indéfiniment
     THRESHOLD_RELAXED = 0.04 
     
-    failed_ids_final = diagnose_model(model, device, threshold=THRESHOLD_RELAXED)
+    failed_ids_final = diagnose_model(model, device, threshold=THRESHOLD_RELAXED,t_max = t_max)
     
     if not failed_ids_final:
         print(f"✅ Ouf ! Validé avec tolérance ({THRESHOLD_RELAXED:.0%}).")

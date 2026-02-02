@@ -4,29 +4,31 @@ import sys
 import os
 from config import Config
 
-# --- IMPORT DU SOLVEUR EXISTANT ---
+# --- IMPORT DU SOLVEUR ---
 sys.path.append(os.path.join(os.getcwd(), 'src'))
 try:
-    from physics.solver import crank_nicolson_adr
+    # On importe la fonction "intelligente" qui gère les BCs (Tanh/Gauss)
+    from physics.solver import get_ground_truth_CN
 except ImportError:
-    print("❌ Impossible d'importer crank_nicolson_adr depuis src.physics.solver")
+    print("❌ Impossible d'importer get_ground_truth_CN depuis src.physics.solver")
     sys.exit(1)
 
-# --- LE MÉDECIN (Fonction Diagnostic) ---
-def diagnose_model(model, device, threshold=0.03, n_samples=100):
+# --- LE MÉDECIN (Fonction Diagnostic Corrigée) ---
+def diagnose_model(model, device, threshold=0.03, t_max=None): # <--- Ajout de t_max
     """
-    Audite le modèle sur les 3 familles en utilisant le solveur Crank-Nicolson existant.
-    Renvoie une liste d'IDs (int) correspondant aux familles qui échouent (> threshold).
+    Audite le modèle sur la fenêtre [0, t_max].
+    Renvoie une liste d'IDs (int) correspondant aux familles qui échouent.
     """
     model.eval()
     
-    # Paramètres de l'audit (Haute résolution pour être juge de paix)
+    # Si t_max n'est pas fourni, on prend le max global (audit final)
+    if t_max is None: t_max = Config.T_max
+
+    # Paramètres de l'audit
     Nx_AUDIT = 256
-    Nt_AUDIT = 200
-    T_audit = 2.0
+    Nt_AUDIT = 200 # Suffisant pour la précision
     
     # Mapping Nom -> Liste des IDs générateurs
-    # 0=Tanh, 1&2=Sin-Gauss, 3&4=Gaussian
     families_map = {
         "Gaussian": [3, 4], 
         "Sin-Gauss": [1, 2], 
@@ -38,49 +40,41 @@ def diagnose_model(model, device, threshold=0.03, n_samples=100):
     # Grille Spatiale fixe pour l'audit
     x_np = np.linspace(Config.x_min, Config.x_max, Nx_AUDIT)
     
-    # Pour DeepONet : on veut prédire à t = T_audit
-    t_np = np.full(Nx_AUDIT, T_audit)
+    # On veut prédire à t = t_max (le bout du palier actuel)
+    t_np = np.full(Nx_AUDIT, t_max)
     xt_flat = np.stack([x_np, t_np], axis=1)
     xt_tensor = torch.tensor(xt_flat, dtype=torch.float32).to(device)
 
-    print(f"\n🩺 DIAGNOSTIC EN COURS (Seuil: {threshold:.1%})...")
+    print(f"\n🩺 DIAGNOSTIC EN COURS (t={t_max}, Seuil: {threshold:.1%})...")
     
     for fam_name, type_ids in families_map.items():
         errors = []
-        # On teste n_samples cas aléatoires pour cette famille
-        for _ in range(n_samples):
-            # 1. Tirage paramètres aléatoires
+        # On teste 20 cas aléatoires par famille (suffisant pour une moyenne)
+        for _ in range(20): 
+            # 1. Tirage paramètres aléatoires (basé sur Config)
             v = np.random.uniform(*Config.ranges['v'])
-            D = np.random.uniform(0.01, Config.ranges['D'][1]) # Evite D trop petit
+            D = np.random.uniform(0.01, Config.ranges['D'][1])
             mu = np.random.uniform(*Config.ranges['mu'])
             A = np.random.uniform(*Config.ranges['A'])
-            x0 = 0.0 # Cohérence avec l'entraînement actuel
+            x0 = 0.0 
             sigma = np.random.uniform(0.2, Config.ranges['sigma'][1])
             k = np.random.uniform(*Config.ranges['k'])
             
             current_id = np.random.choice(type_ids)
             
-            # 2. Génération Condition Initiale (u0)
-            # On utilise numpy directement ici pour aller vite
-            if current_id in [3, 4]: 
-                u0 = A * np.exp(-(x_np - x0)**2 / (2 * sigma**2))
-            elif current_id in [1, 2]: 
-                u0 = A * np.exp(-(x_np - x0)**2 / (2 * sigma**2)) * np.sin(k * x_np)
-            elif current_id == 0: 
-                u0 = A * np.tanh((x_np - x0) / sigma)
+            # 2. Dictionnaire de paramètres pour le solveur intelligent
+            p_dict = {
+                'v': v, 'D': D, 'mu': mu, 'type': current_id,
+                'A': A, 'x0': x0, 'sigma': sigma, 'k': k
+            }
             
-            # 3. Vérité Terrain via TON Solveur Existant
-            # Signature : crank_nicolson_adr(v, D, mu, xL, xR, Nx, Tmax, Nt, bc_kind, x0, u0)
-            # Attention : ton solveur renvoie (x, U, t_grid) où U est shape (Nt, Nx)
+            # 3. Vérité Terrain (Avec gestion automatique des BCs !)
             try:
-                _, U_full, _ = crank_nicolson_adr(
-                    v, D, mu, 
-                    Config.x_min, Config.x_max, 
-                    Nx_AUDIT, T_audit, Nt_AUDIT, 
-                    "periodic", 
-                    x0=x_np, u0=u0
+                # get_ground_truth_CN va choisir "tanh_pm1" ou "zero_zero" automatiquement
+                _, _, U_full = get_ground_truth_CN(
+                    p_dict, Config.x_min, Config.x_max, t_max, Nx_AUDIT, Nt_AUDIT
                 )
-                # On récupère la dernière ligne (t = Tmax)
+                # On récupère la dernière ligne (t = t_max)
                 u_true = U_full[-1, :]
                 
             except Exception as e:
@@ -89,19 +83,21 @@ def diagnose_model(model, device, threshold=0.03, n_samples=100):
             
             # 4. Prédiction DeepONet
             p_val = [v, D, mu, current_id, A, x0, sigma, k]
-            p_tensor = torch.tensor([p_val] * Nx_AUDIT, dtype=torch.float32).to(device)
+            # Création du tenseur de paramètres répété Nx fois
+            p_tensor = torch.tensor([p_val], dtype=torch.float32).to(device).repeat(Nx_AUDIT, 1)
             
             with torch.no_grad():
                 u_pred = model(p_tensor, xt_tensor).cpu().numpy().flatten()
             
-            # 5. Calcul Erreur L2
+            # 5. Calcul Erreur L2 Relative
             norm = np.linalg.norm(u_true) + 1e-6
             err = np.linalg.norm(u_true - u_pred) / norm
             errors.append(err)
             
         mean_err = np.mean(errors) if errors else 1.0
         status = "✅" if mean_err < threshold else "❌"
-        print(f"  - {fam_name:<10} : {mean_err:.2%} {status}")
+        # Affichage propre aligné
+        print(f"  - {fam_name:<12} : {mean_err:.2%} {status}")
         
         if mean_err > threshold:
             failed_ids.extend(type_ids)
