@@ -11,7 +11,7 @@ if src_path not in sys.path: sys.path.append(src_path)
 # --- IMPORTS DE REPRISE ---
 from config_reprise import Config  # On importe la nouvelle config
 from src.models.adr import PI_DeepONet_ADR
-from smart_trainer_reprise import train_smart_time_marching_reprise
+from src.training.smart_trainer_reprise import train_smart_time_marching_reprise
 
 # CHEMIN DU CHECKPOINT (À adapter selon ton dossier)
 CHECKPOINT_PATH = "results/run_20260204-083040/model_checkpoint_t1.6.pth"
