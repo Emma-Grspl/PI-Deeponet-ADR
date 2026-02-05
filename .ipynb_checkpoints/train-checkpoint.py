@@ -1,81 +1,69 @@
 import sys
 import os
 import torch
+import yaml
 from datetime import datetime
 
-# --- GESTION DES CHEMINS (Indispensable pour Jean Zay) ---
-# On récupère le dossier courant (racine du projet)
+# --- GESTION DES CHEMINS ---
 project_root = os.getcwd()
-
-# On ajoute 'src' au chemin pour pouvoir faire "from config import Config"
 src_path = os.path.join(project_root, 'src')
 if src_path not in sys.path:
     sys.path.append(src_path)
 
-
-# --- IMPORTS ---
+# --- IMPORTS DÉDIÉS ---
 try:
-    from config import Config
+    # On importe le chargeur de config depuis le nouveau smart_trainer
+    from src.training.smart_trainer import load_config, train_smart_time_marching
     from src.models.adr import PI_DeepONet_ADR
-    from src.training.smart_trainer import train_smart_time_marching
     print("✅ Imports réussis.")
 except ImportError as e:
     print(f"❌ Erreur d'import : {e}")
     sys.exit(1)
 
 def main():
-    # 1. SETUP DOSSIER DE SAUVEGARDE
-    # On crée un dossier unique horodaté pour ne pas écraser les tests précédents
+    # 1. CHARGEMENT DE LA CONFIGURATION YAML
+    # On charge le fichier YAML (assure-toi que le chemin est correct)
+    config_path = os.path.join(project_root, "src", "config_ADR.yaml")
+    cfg = load_config(config_path)
+
+    # 2. SETUP DOSSIER DE SAUVEGARDE
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    # On sauvegarde dans results/run_DATE
     run_name = f"run_{timestamp}"
     run_dir = os.path.join(project_root, "results", run_name)
-    
-    # On force la config à utiliser ce dossier
-    Config.save_dir = run_dir
     os.makedirs(run_dir, exist_ok=True)
     
-    print(f"🚀 Lancement Entraînement Jean Zay")
-    print(f"📁 Dossier de sortie : {run_dir}")
-    print(f"⚙️  Paramètres :")
-    print(f"   - Tmax: {Config.T_max}")
-    print(f"   - dt: {Config.dt}")
-    print(f"   - Batch Size: {Config.batch_size}")
-    print(f"   - Iters/Step: {Config.n_iters_per_step}")
-
-    # 2. DEVICE
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        print("📱 Device : CUDA (Nvidia)")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-        print("📱 Device : MPS (Mac M1/M2/M3)")
-    else:
-        device = torch.device("cpu")
-        print("📱 Device : CPU")
+    # On met à jour le dossier de sauvegarde dans la config chargée
+    cfg['audit']['save_dir'] = run_dir
     
-    # 3. INITIALISATION MODÈLE
+    print(f"🚀 Lancement Entraînement ADR (Jean Zay)")
+    print(f"📁 Dossier de sortie : {run_dir}")
+    print(f"⚙️  Paramètres clés :")
+    print(f"   - Tmax: {cfg['geometry']['T_max']}")
+    print(f"   - Zones: {cfg['time_stepping']['zones']}")
+    print(f"   - Points (n_sample): {cfg['training']['n_sample']}")
+    print(f"   - Macro Loops: {cfg['training']['nb_loop']}")
+
+    # 3. DEVICE
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"📱 Device : {device}")
+    
+    # 4. INITIALISATION MODÈLE
     model = PI_DeepONet_ADR().to(device)
 
-    # 4. ENTRAÎNEMENT (Smart Time Marching)
-    # Note: On utilise ici les valeurs par défaut de Config (les "vraies" valeurs)
-    # Pas d'override comme dans le test !
+    # 5. ENTRAÎNEMENT (Smart Time Marching)
+    # Note : Le trainer utilise 'cfg' interne, on passe juste le modèle et les ranges
     try:
         model = train_smart_time_marching(
             model,
-            bounds=Config.ranges,
-            n_warmup=Config.n_warmup,
-            n_iters_per_step=Config.n_iters_per_step
+            bounds=cfg['physics_ranges']
         )
     except Exception as e:
-        print(f"❌ Erreur critique pendant l'entraînement : {e}")
-        # On sauvegarde quand même l'état actuel en cas de crash
+        print(f"❌ Erreur critique : {e}")
         emergency_path = os.path.join(run_dir, "model_CRASHED.pth")
         torch.save(model.state_dict(), emergency_path)
-        print(f"💾 Sauvegarde d'urgence effectuée : {emergency_path}")
         raise e
 
-    # 5. SAUVEGARDE FINALE
+    # 6. SAUVEGARDE FINALE
     final_model_path = os.path.join(run_dir, "model_final.pth")
     torch.save(model.state_dict(), final_model_path)
     print(f"✅ Modèle final sauvegardé : {final_model_path}")

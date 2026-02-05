@@ -1,8 +1,5 @@
 import torch
 
-# pde residual
-import torch
-
 def pde_residual_adr(model, params, xt):
     """
     Calcule le résidu de l'équation ADR : u_t + v*u_x - D*u_xx - mu*(u - u^3) = 0

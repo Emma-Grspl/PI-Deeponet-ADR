@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=DeepONet_ADR     # Nom du job
+#SBATCH --job-name=ADR     # Nom du job
 #SBATCH --output=slurm/log/%x_%j.out
 #SBATCH --error=slurm/log/%x_%j.err
 #SBATCH -A fdb@v100                 # <--- TON COMPTE PROJET ICI

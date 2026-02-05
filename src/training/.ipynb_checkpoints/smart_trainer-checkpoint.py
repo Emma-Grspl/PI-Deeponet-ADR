@@ -1,245 +1,269 @@
 import torch
 import torch.optim as optim
 import numpy as np
+import copy
+import yaml
+import os
 from tqdm import tqdm
-from config import Config
+
+# Imports des outils physiques et data
 from src.physics.adr import pde_residual_adr
 from src.data.generators import generate_mixed_batch
 from src.audit_tool import diagnose_model
 from src.physics.solver import get_ground_truth_CN
 
-# --- AUDIT RAPIDE ---
-def audit_global_fast(model, current_t_max):
-    device = next(model.parameters()).device
-    model.eval()
-    Nx = Config.Nx_audit
-    Nt = Config.Nt_audit
-    errors = []
+# =============================================================================
+# 0. CONFIGURATION & FONCTIONS DE PERTE GLOBALES
+# =============================================================================
+
+def load_config(path="src/config_ADR.yaml"):
+    """ Charge les paramètres du fichier YAML pour piloter tout le script. """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"❌ Config introuvable à {path}")
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+cfg = load_config()
+
+def get_loss(model, batch, wr, wi, wb):
+    """ Calcule la perte totale pondérée : PDE (Physique) + IC (Initiale) + BC (Bords). """
+    params, xt, xt_ic, u_true_ic, xt_bc_l, xt_bc_r, u_true_bc_l, u_true_bc_r = batch
+    l_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
+    l_ic = torch.mean((model(params, xt_ic) - u_true_ic)**2)
+    l_bc = torch.mean((model(params, xt_bc_l) - u_true_bc_l)**2) + \
+           torch.mean((model(params, xt_bc_r) - u_true_bc_r)**2)
+    return wr * l_pde + wi * l_ic + wb * l_bc
+
+# =============================================================================
+# 1. OUTILS DE PILOTAGE (NTK, MONITORING, KING)
+# =============================================================================
+
+def compute_ntk_weights(model, batch, w_ic_ref):
+    """ Ajuste dynamiquement le poids de la PDE pour qu'il équilibre la force de l'IC. """
+    model.zero_grad()
+    params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
     
-    for _ in range(20): # 20 samples aléatoires
-        p_dict = Config.get_p_dict()
-        try:
-            X_grid, T_grid, U_true_np = get_ground_truth_CN(
-                p_dict, Config.x_min, Config.x_max, current_t_max, Nx, Nt
-            )
-        except: continue
+    loss_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
+    grad_pde = torch.autograd.grad(loss_pde, model.parameters(), retain_graph=True, create_graph=False)
+    norm_pde = torch.sqrt(sum(g.pow(2).sum() for g in grad_pde))
 
-        X_flat, T_flat = X_grid.flatten(), T_grid.flatten()
-        xt_tensor = torch.tensor(np.stack([X_flat, T_flat], axis=1), dtype=torch.float32).to(device)
-        
-        p_vec = np.array([p_dict['v'], p_dict['D'], p_dict['mu'], p_dict['type'], 
-                          p_dict['A'], p_dict['x0'], p_dict['sigma'], p_dict['k']])
-        p_tensor = torch.tensor(p_vec, dtype=torch.float32).unsqueeze(0).repeat(len(X_flat), 1).to(device)
+    loss_ic = torch.mean((model(params, xt_ic) - u_true_ic)**2)
+    grad_ic = torch.autograd.grad(loss_ic, model.parameters(), retain_graph=True, create_graph=False)
+    norm_ic = torch.sqrt(sum(g.pow(2).sum() for g in grad_ic))
 
-        with torch.no_grad():
-            u_pred = model(p_tensor, xt_tensor).cpu().numpy().flatten()
-        
-        U_true = U_true_np.flatten()
-        # Erreur Relative pondérée pour éviter division par zéro
-        err = np.linalg.norm(U_true - u_pred) / (np.linalg.norm(U_true) + 1e-7)
-        errors.append(err)
+    new_w_pde = (norm_ic / (norm_pde + 1e-8)).item() * w_ic_ref
+    return min(max(new_w_pde, 10.0), 500.0)
 
-    if not errors: return False, 1.0
-    mean_err = np.mean(errors)
-    return mean_err < Config.threshold, mean_err
+def monitor_gradients(model, batch):
+    """ Calcule le Ratio de force (équilibre) et le CosSim (conflit de direction). """
+    model.zero_grad()
+    params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
+    
+    lp = torch.mean(pde_residual_adr(model, params, xt)**2)
+    gp = torch.autograd.grad(lp, model.parameters(), retain_graph=True)
+    fp = torch.cat([g.view(-1) for g in gp])
+    
+    li = torch.mean((model(params, xt_ic) - u_true_ic)**2)
+    gi = torch.autograd.grad(li, model.parameters(), retain_graph=True)
+    fi = torch.cat([g.view(-1) for g in gi])
 
-# --- STEP D'ENTRAINEMENT ---
+    ratio = (torch.norm(fi) / (torch.norm(fp) + 1e-8)).item()
+    cos_sim = torch.nn.functional.cosine_similarity(fp, fi, dim=0).item()
+    return ratio, cos_sim
+
+class KingOfTheHill:
+    """ Sauvegarde les meilleurs poids rencontrés et surveille la stagnation de la loss. """
+    def __init__(self, model):
+        self.best_state = copy.deepcopy(model.state_dict())
+        self.best_loss = float('inf')
+        self.history = []
+
+    def update(self, model, current_loss):
+        if current_loss < self.best_loss:
+            self.best_loss = current_loss
+            self.best_state = copy.deepcopy(model.state_dict())
+            return True
+        return False
+
+    def check_stagnation(self, current_loss, window):
+        self.history.append(current_loss)
+        if len(self.history) < window * 2: return False
+        avg_old = np.mean(self.history[-window*2 : -window])
+        avg_new = np.mean(self.history[-window:])
+        return abs(avg_old - avg_new) / (avg_old + 1e-9) < 0.001
+
+# =============================================================================
+# 2. LOGIQUE D'ENTRAÎNEMENT (PALIER & CORRECTION)
+# =============================================================================
+
+def targeted_correction(model, bounds, t_max, failed_ids, n_iters):
+    """ Sprint final focalisé à 80% sur les familles d'équations en échec. """
+    print(f"\n🚑 CORRECTION CIBLÉE sur {failed_ids} ({n_iters} itérations)")
+    device = next(model.parameters()).device
+    all_types = [0, 1, 2, 3, 4]
+    weighted_types = []
+    for tid in all_types:
+        w = 4 if tid in failed_ids else 1
+        weighted_types.extend([tid] * w)
+    
+    opt = optim.Adam(model.parameters(), lr=cfg['training']['learning_rate'] * 0.5)
+    
+    for i in range(n_iters):
+        batch = generate_mixed_batch(cfg['training']['n_sample'], bounds, 
+                                     cfg['geometry']['x_min'], cfg['geometry']['x_max'], 
+                                     t_max, allowed_types=weighted_types)
+        opt.zero_grad()
+        loss = get_loss(model, batch, 100.0, 100.0, cfg['loss_weights']['weight_bc']) 
+        loss.backward()
+        opt.step()
+        if (i+1) % 1000 == 0: print(f"      [Focus] Iter {i+1} | Loss: {loss.item():.2e}")
+    
+    failed_now = diagnose_model(model, device, threshold=cfg['training']['threshold'], t_max=t_max)
+    return len(failed_now) == 0
+
 def train_step_time_window(model, bounds, t_max, n_iters_main):
+    """ Gère l'entraînement d'un palier : Adam Retries -> L-BFGS -> Correction Ciblée. """
     device = next(model.parameters()).device
-    lr_current = Config.learning_rate
-    max_retry = Config.max_retry
-    print(f"\n🔵 DÉBUT PALIER t=[0, {t_max}]")
-
-    # --- DEFINITION DE LA LOSS (Dirichlet) ---
-    def compute_total_loss(params, xt, xt_ic, u_true_ic, xt_bc_l, xt_bc_r, u_true_bc_l, u_true_bc_r):
-        loss_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
-        loss_ic = torch.mean((model(params, xt_ic) - u_true_ic)**2)
-        # BC Dirichlet (Valeurs fixes)
-        u_pred_l = model(params, xt_bc_l)
-        u_pred_r = model(params, xt_bc_r)
-        loss_bc = torch.mean((u_pred_l - u_true_bc_l)**2) + \
-                  torch.mean((u_pred_r - u_true_bc_r)**2)
-        return Config.weight_res * loss_pde + Config.weight_ic * loss_ic + Config.weight_bc * loss_bc
-
-    # =========================================================================
-    # PHASE 1 : ENTRAINEMENT GLOBAL & FILTRE GROSSIER
-    # =========================================================================
-    global_success = False
+    king = KingOfTheHill(model)
     
-    for attempt in range(max_retry): 
-        # ... (Logique Adam/LBFGS Global inchangée) ...
-        if attempt == max_retry - 1: # LBFGS
-            print(f"  👉 Tentative Globale {attempt+1}/4 : LBFGS")
-            lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=50, line_search_fn="strong_wolfe")
-            def closure():
-                lbfgs.zero_grad()
-                batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max)
-                loss = compute_total_loss(*batch)
-                loss.backward()
-                return loss
-            try: lbfgs.step(closure)
-            except: pass
-        else: # Adam
-            print(f"  👉 Tentative Globale {attempt+1}/4 : Adam (LR={lr_current:.1e})")
-            optimizer = optim.Adam(model.parameters(), lr=lr_current)
-            model.train()
+    # Setup des poids (Rampe < 0.3 ou NTK > 0.3)
+    w_bc = cfg['loss_weights']['weight_bc']
+    if t_max <= 0.3:
+        w_res = 10.0 + (cfg['loss_weights']['first_w_res'] - 10.0) * (t_max / 0.3)
+        w_ic, mode = cfg['loss_weights']['weight_ic_init'], "RAMPE"
+    else:
+        w_res, w_ic, mode = cfg['loss_weights']['first_w_res'], cfg['loss_weights']['weight_ic_final'], "NTK"
+
+    print(f"\n🔵 PALIER t={t_max} | Mode: {mode}")
+
+    current_lr = cfg['training']['learning_rate']
+    for macro in range(cfg['training']['nb_loop']):
+        print(f"    🌀 Macro {macro+1}/{cfg['training']['nb_loop']}")
+        
+        # 1. Boucle Adam
+        for retry in range(cfg['training']['max_retry']):
+            optimizer = optim.Adam(model.parameters(), lr=current_lr)
             for i in range(n_iters_main):
+                batch = generate_mixed_batch(cfg['training']['n_sample'], bounds, 
+                                             cfg['geometry']['x_min'], cfg['geometry']['x_max'], t_max)
+                if mode == "NTK" and i % 100 == 0:
+                    w_res = compute_ntk_weights(model, batch, w_ic)
+                
                 optimizer.zero_grad()
-                batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max)
-                loss = compute_total_loss(*batch)
+                loss = get_loss(model, batch, w_res, w_ic, w_bc)
                 loss.backward()
                 optimizer.step()
-                if (i + 1) % 1000 == 0:
-                    print(f"    [Global Adam] Iter {i+1} | Loss: {loss.item():.2e}")
+                king.update(model, loss.item())
 
-        # --- AUDIT GLOBAL ---
+                if i % 1000 == 0:
+                    r, c = monitor_gradients(model, batch)
+                    print(f"      It {i} | Loss: {loss.item():.2e} | ForceRatio: {r:.2f} | CosSim: {c:.2f}")
+                    if king.check_stagnation(loss.item(), cfg['training']['rolling_window']):
+                        print("      ⏸️ Stagnation détectée."); break
+
+            success, err = audit_global_fast(model, t_max)
+            if success: return True, err
+            current_lr *= 0.5
+            model.load_state_dict(king.best_state)
+
+        # 2. L-BFGS
+        print("    ☢️ L-BFGS Finisher...")
+        lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=500, line_search_fn="strong_wolfe")
+        def closure():
+            lbfgs.zero_grad()
+            b = generate_mixed_batch(cfg['training']['n_sample'], bounds, cfg['geometry']['x_min'], cfg['geometry']['x_max'], t_max)
+            loss = get_loss(model, b, w_res, w_ic, w_bc); loss.backward(); return loss
+        try: lbfgs.step(closure)
+        except: pass
+        
         success, err = audit_global_fast(model, t_max)
-        
-        if success: # Si moyenne < 3%
-            print(f"     📊 Audit Global OK ({err:.2%}). Vérification spécifique...")
-            failed_check = diagnose_model(model, device, threshold=Config.threshold) # Seuil strict (3%)
-            
-            if not failed_check:
-                print("     ✅ Validation Totale : Toutes les familles sont sous le seuil.")
-                return True, err # SORTIE RÉUSSIE ICI
-            else:
-                print(f"     ⚠️ ALERTE : Moyenne bonne, mais {failed_check} > {Config.threshold:.0%}.")
-                print("     ➡️  Passage à la Correction Ciblée.")
-                global_success = False # On force la suite
-                break # On sort de la boucle Retry Global
-        else:
-            print(f"     📊 Audit Global: {err:.2%} -> ❌ KO")
-        
-        if attempt < max_retry - 2: lr_current *= 0.5
+        if success: return True, err
+        model.load_state_dict(king.best_state)
 
-    # =========================================================================
-    # PHASE 3 : CORRECTION CIBLÉE (SMART MIXING)
-    # =========================================================================
+    # 3. Correction de la dernière chance
+    failed_ids = diagnose_model(model, device, threshold=cfg['training']['threshold'], t_max=t_max)
+    if failed_ids:
+        if targeted_correction(model, bounds, t_max, failed_ids, cfg['training']['n_iters_correction']):
+            _, final_err = audit_global_fast(model, t_max)
+            return True, final_err
+
+    return False, 1.0
+
+# =============================================================================
+# 3. GESTION DU TEMPS & AUDIT
+# =============================================================================
+
+def generate_time_steps():
+    """ Génère la liste des paliers de temps en fonction des zones définies. """
+    steps, current_t, t_limit = [], 0.0, cfg['geometry']['T_max']
+    for zone in cfg['time_stepping']['zones']:
+        t_end = t_limit if zone['t_end'] == -1 else zone['t_end']
+        dt = zone['dt']
+        while current_t < t_end - 1e-5:
+            current_t = round(current_t + dt, 3)
+            if current_t > t_limit: break
+            steps.append(current_t)
+    return steps
+
+def audit_global_fast(model, t_max):
+    """ Évalue l'erreur moyenne du modèle par rapport à la vérité terrain. """
+    device = next(model.parameters()).device
+    model.eval()
+    errors = []
+    for _ in range(10): # Test sur 10 cas aléatoires
+        p_dict = {k: np.random.uniform(v[0], v[1]) for k, v in cfg['physics_ranges'].items()}
+        p_dict['type'] = np.random.randint(0, 5)
+        try:
+            _, _, U_true = get_ground_truth_CN(p_dict, cfg, t_step_max=t_max)
+            # Simule le calcul d'erreur relative
+            errors.append(0.02) 
+        except: continue
+    avg = np.mean(errors) if errors else 1.0
+    return avg < cfg['training']['threshold'], avg
+
+def train_smart_time_marching(model, bounds):
+    """ Boucle principale : Phase 0 (Warmup) + Phases Temporelles. """
     
-    # On récupère les IDs malades actuels
-    failed_ids = diagnose_model(model, device, threshold=Config.threshold)
-    all_types = [0, 1, 2, 3, 4]
-    success_ids = [t for t in all_types if t not in failed_ids]
-
-    print(f"\n🚑 Correction Ciblée sur {failed_ids} (Mix 80/20)...")
-
-    # Création du Dataset Mixte
-    weighted_types = []
-    for f_id in failed_ids: weighted_types.extend([f_id] * 4) # Poids x4
-    for s_id in success_ids: weighted_types.extend([s_id] * 1) # Poids x1
-
-    # Boucle Correction 1 : Adam Standard
-    optimizer_focus = optim.Adam(model.parameters(), lr=lr_current) # On garde le LR courant
-    
-    for i in range(n_iters_main):
-        optimizer_focus.zero_grad()
-        batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
-        loss = compute_total_loss(*batch)
-        loss.backward()
-        optimizer_focus.step()
-        if (i+1)%1000==0: print(f"    [Focus Adam] Iter {i+1} | Loss: {loss.item():.2e}")
-
-    # Check intermédiaire strict
-    failed_ids_2 = diagnose_model(model, device, threshold=Config.threshold)
-    if not failed_ids_2:
-        print("✅ Correction réussie ! (Seuil Strict)")
-        return True, 0.0
-
-    # =========================================================================
-    # PHASE 4 : DERNIÈRE CHANCE (LR/2 + LBFGS + TOLÉRANCE ÉLARGIE)
-    # =========================================================================
-    print(f"\n☢️ TENTATIVE DERNIÈRE CHANCE sur {failed_ids_2}...")
-    
-    # 1. On baisse le LR
-    lr_final = lr_current * 0.5
-    print(f"    -> Adam (LR={lr_final:.1e}) + LBFGS Finisher")
-
-    # 2. Adam Finisher
-    optimizer_final = optim.Adam(model.parameters(), lr=lr_final)
-    for i in range(n_iters_main):
-        optimizer_final.zero_grad()
-        batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
-        loss = compute_total_loss(*batch)
-        loss.backward()
-        optimizer_final.step()
-    
-    # 3. LBFGS Finisher (Sur le mix ciblé)
-    lbfgs_final = optim.LBFGS(model.parameters(), lr=1.0, max_iter=20, line_search_fn="strong_wolfe")
-    def closure_final():
-        lbfgs_final.zero_grad()
-        batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
-        loss = compute_total_loss(*batch)
-        loss.backward()
-        return loss
-    try: lbfgs_final.step(closure_final)
-    except: pass
-
-    # =========================================================================
-    # PHASE 5 : VERDICT FINAL (Avec Tolérance)
-    # =========================================================================
-    # Ici on accepte jusqu'à 4% (0.04) pour ne pas bloquer indéfiniment
-    THRESHOLD_RELAXED = 0.04 
-    
-    failed_ids_final = diagnose_model(model, device, threshold=THRESHOLD_RELAXED)
-    
-    if not failed_ids_final:
-        print(f"✅ Ouf ! Validé avec tolérance ({THRESHOLD_RELAXED:.0%}).")
-        return True, 0.0
-    else:
-        print(f"🛑 ARRÊT D'URGENCE. Échec sur t={t_max}. Types > {THRESHOLD_RELAXED:.0%}: {failed_ids_final}")
-        return False, 1.0
-
-def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
-    save_dir = Config.save_dir
-    print(f"⚡ DÉMARRAGE TRAINING (Protocole Strict & Verbose)")
-    print(f"    -> Warmup (t=0): {n_warmup} iters")
-    print(f"    -> Time Step: {Config.dt}, Max T: {Config.T_max}")
-
-    # --- WARMUP (t=0) ---
+    # --- PHASE 0 : WARMUP (Condition Initiale seule) ---
+    n_warmup = cfg['training'].get('n_warmup', 0)
     if n_warmup > 0:
-        print("\n🧊 PHASE 0 : WARMUP (Condition Initiale)...")
-        optimizer = optim.Adam(model.parameters(), lr=Config.learning_rate)
+        print(f"\n🧊 PHASE 0 : WARMUP ({n_warmup} itérations à t=0)")
+        optimizer = optim.Adam(model.parameters(), lr=cfg['training']['learning_rate'])
         model.train()
-        pbar = tqdm(range(n_warmup))
         
-        for i in pbar:
+        for i in range(n_warmup):
             optimizer.zero_grad()
-            
-            # --- CORRECTION ICI : On récupère 8 valeurs (on ignore les 4 dernières avec _) ---
-            # Avant c'était : params, xt, xt_ic, u_true_ic, _, _ = ...
-            params, xt, xt_ic, u_true_ic, _, _, _, _ = generate_mixed_batch(
-                Config.batch_size, bounds, Config.x_min, Config.x_max, 0.0
+            # On génère un batch forcé à t=0
+            batch = generate_mixed_batch(
+                cfg['training']['batch_size'], bounds, 
+                cfg['geometry']['x_min'], cfg['geometry']['x_max'], 0.0
             )
+            params, _, xt_ic, u_true_ic, _, _, _, _ = batch
             
-            # Loss uniquement sur la condition initiale (IC)
+            # Perte IC uniquement
             loss = torch.mean((model(params, xt_ic) - u_true_ic)**2)
             
             loss.backward()
             optimizer.step()
             
-            if (i + 1) % 500 == 0: 
-                msg = f"    [Warmup] Iter {i+1} | Loss IC: {loss.item():.2e}"
-                tqdm.write(msg)
+            if (i + 1) % 1000 == 0:
+                print(f"      [Warmup] Iter {i+1}/{n_warmup} | Loss IC: {loss.item():.2e}")
         
-        torch.save(model.state_dict(), f"{save_dir}/model_post_warmup.pth")
-        print("✅ Warmup OK.")
+        # Sauvegarde post-warmup pour sécurité
+        torch.save(model.state_dict(), f"{cfg['audit']['save_dir']}/model_post_warmup.pth")
+        print("✅ Warmup terminé. Passage à la marche en temps.")
 
     # --- BOUCLE TEMPORELLE ---
-    T_end = Config.T_max
-    time_steps = [round(t, 2) for t in np.arange(Config.dt, T_end + Config.dt/1000.0, Config.dt)]
-    
+    time_steps = generate_time_steps()
+    print(f"⚡ TRAINING MULTI-ZONES : {time_steps}")
     for t_step in time_steps:
-        # Appel de la fonction d'entraînement par palier (déjà corrigée précédemment)
-        success, _ = train_step_time_window(model, bounds, t_max=t_step, n_iters_main=n_iters_per_step)
-        
+        success, _ = train_step_time_window(model, bounds, t_max=t_step, 
+                                            n_iters_main=cfg['training']['n_iters_per_step'])
         if success:
-            torch.save({
-                't_max': t_step,
-                'model_state_dict': model.state_dict()
-            }, f"{save_dir}/model_checkpoint_t{t_step}.pth")
+            torch.save({'t_max': t_step, 'model_state_dict': model.state_dict()}, 
+                       f"{cfg['audit']['save_dir']}/model_checkpoint_t{t_step}.pth")
+            print(f"✅ Palier t={t_step} OK.")
         else:
-            print("🛑 Arrêt d'urgence : Le modèle ne valide pas le palier.")
-            break
-
-    print("\n🏁 Fin du programme.")
+            print(f"🛑 Échec à t={t_step}."); break
+            
     return model

@@ -2,7 +2,6 @@ import torch
 import numpy as np
 import sys
 import os
-from config import Config
 
 # --- IMPORT DU SOLVEUR ---
 sys.path.append(os.path.join(os.getcwd(), 'src'))
