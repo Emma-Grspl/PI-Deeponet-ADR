@@ -38,20 +38,18 @@ def get_loss(model, batch, wr, wi, wb):
 # 1. OUTILS DE PILOTAGE (NTK, MONITORING, KING)
 # =============================================================================
 
-# =============================================================================
-# 1. OUTILS DE PILOTAGE (NTK, MONITORING, KING)
-# =============================================================================
-
 def compute_ntk_weights(model, batch, w_ic_ref):
     """ Ajuste dynamiquement le poids de la PDE pour qu'il équilibre la force de l'IC. """
     model.zero_grad()
+    # On déballe le batch
     params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
 
-    # 🔥 PATCH DE SÉCURITÉ (Indispensable ici aussi)
+    # 🔥 PROTECTION INTERNE OBLIGATOIRE 🔥
+    # Même si le batch externe semble ok, le tuple peut contenir une vieille ref
     if not xt.requires_grad:
         xt.requires_grad_(True)
-    # ----------------------------------------------
-    
+    # ------------------------------------
+
     loss_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
     grad_pde = torch.autograd.grad(loss_pde, model.parameters(), retain_graph=True, create_graph=False)
     norm_pde = torch.sqrt(sum(g.pow(2).sum() for g in grad_pde))
@@ -66,16 +64,16 @@ def compute_ntk_weights(model, batch, w_ic_ref):
 def monitor_gradients(model, batch):
     """ Calcule le Ratio de force (équilibre) et le CosSim (conflit de direction). """
     model.zero_grad()
+    # On déballe le batch
     params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
     
-    # 🔥 PATCH DE SÉCURITÉ (Indispensable ici aussi)
+    # 🔥 PROTECTION INTERNE OBLIGATOIRE 🔥
+    # C'est ICI que ça plantait (ligne 79 dans ton log)
     if not xt.requires_grad:
         xt.requires_grad_(True)
-    # ----------------------------------------------
+    # ------------------------------------
     
     lp = torch.mean(pde_residual_adr(model, params, xt)**2)
-    
-    # C'est ICI que ça plantait (ligne 63/170)
     gp = torch.autograd.grad(lp, model.parameters(), retain_graph=True)
     fp = torch.cat([g.view(-1) for g in gp])
     
