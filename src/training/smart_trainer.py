@@ -141,11 +141,19 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
         print(f"    🌀 Macro {macro+1}/{cfg['training']['nb_loop']}")
         
         # 1. Boucle Adam
+        # 1. Boucle Adam
         for retry in range(cfg['training']['max_retry']):
             optimizer = optim.Adam(model.parameters(), lr=current_lr)
+            
             for i in range(n_iters_main):
                 batch = generate_mixed_batch(cfg['training']['n_sample'], bounds, 
                                              cfg['geometry']['x_min'], cfg['geometry']['x_max'], t_max)
+                
+                # --- ON DÉBALLE LE BATCH ---
+                params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
+                
+                if not xt.requires_grad:
+                    xt.requires_grad_(True)
                 if mode == "NTK" and i % 100 == 0:
                     w_res = compute_ntk_weights(model, batch, w_ic)
                 
