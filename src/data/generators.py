@@ -143,8 +143,11 @@ def generate_mixed_batch(n_samples, bounds_phy, x_min, x_max, Tmax, allowed_type
             u_true_bc_l[i] = -1.0
             u_true_bc_r[i] =  1.0
 
+    xt_tensor = torch.FloatTensor(xt).to(device)
+    xt_tensor.requires_grad_(True) # <--- INDISPENSABLE POUR LA PDE
+    
     return (torch.FloatTensor(params_vec).to(device),
-            torch.FloatTensor(xt).to(device),        
+            xt_tensor,                                    # On renvoie la version avec grad
             torch.FloatTensor(xt_ic).to(device),     
             torch.FloatTensor(u_true_ic).to(device),
             torch.FloatTensor(xt_bc_left).to(device),   
