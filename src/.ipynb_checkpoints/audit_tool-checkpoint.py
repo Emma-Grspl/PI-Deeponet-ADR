@@ -11,20 +11,23 @@ except ImportError:
     print("❌ Impossible d'importer get_ground_truth_CN depuis src.physics.solver")
     sys.exit(1)
 
-def diagnose_model(model, device, threshold=0.03, t_max=None):
+def diagnose_model(model, device, cfg, threshold=None, t_max=None):
     """
     Diagnostique chaque famille sur la fenêtre [0, t_max] complète.
-    Utilise la méthode ROBUSTE (Flatten) identique à l'audit global.
+    Prend le dictionnaire de config 'cfg' en argument.
     """
     model.eval()
     
-    # Par défaut, on audite tout si t_max n'est pas précisé
-    if t_max is None: t_max = Config.T_max
-
-    # Paramètres de résolution (identiques à l'audit global pour cohérence)
-    Nx = Config.Nx_audit
-    Nt = Config.Nt_audit
-
+    # 1. Gestion des valeurs par défaut depuis cfg
+    if threshold is None: threshold = cfg['training']['threshold']
+    if t_max is None: t_max = cfg['geometry']['T_max']
+    
+    Nx = cfg['audit']['Nx_audit']
+    Nt = cfg['audit']['Nt_audit']
+    x_min = cfg['geometry']['x_min']
+    x_max = cfg['geometry']['x_max']
+    
+    # 2. Définition des familles
     families_map = {
         "Gaussian": [3, 4], 
         "Sin-Gauss": [1, 2], 
@@ -39,37 +42,37 @@ def diagnose_model(model, device, threshold=0.03, t_max=None):
         errors = []
         # On teste 20 cas aléatoires par famille
         for _ in range(20): 
-            # 1. Paramètres aléatoires
-            p_dict = Config.get_p_dict()
+            # a. Paramètres aléatoires (dictionnaire)
+            p_dict = {k: np.random.uniform(v[0], v[1]) for k, v in cfg['physics_ranges'].items()}
+            
             # On force le type pour tester la famille spécifique
             current_id = np.random.choice(type_ids)
             p_dict['type'] = current_id 
             
-            # 2. Vérité Terrain ROBUSTE
-            # On récupère TOUTE la grille (X, T) et TOUTE la solution U
+            # b. Vérité Terrain ROBUSTE
             try:
+                # Appel du solveur avec le dictionnaire cfg
                 X_grid, T_grid, U_true_np = get_ground_truth_CN(
-                    p_dict, Config.x_min, Config.x_max, t_max, Nx, Nt
+                    p_dict, cfg, t_step_max=t_max
                 )
             except Exception as e:
                 # print(f"⚠️ Erreur solveur : {e}") 
                 continue
 
-            # 3. Aplatissement (Comme l'Audit Global)
-            # Cela évite tout problème de transposition (Nx, Nt) vs (Nt, Nx)
+            # c. Aplatissement (Flatten)
             X_flat = X_grid.flatten()
             T_flat = T_grid.flatten()
             U_true = U_true_np.flatten()
             
-            # 4. Préparation Input DeepONet
+            # d. Préparation Input DeepONet
             xt_tensor = torch.tensor(np.stack([X_flat, T_flat], axis=1), dtype=torch.float32).to(device)
             
             p_vec = np.array([p_dict['v'], p_dict['D'], p_dict['mu'], p_dict['type'], 
-                              p_dict['A'], p_dict['x0'], p_dict['sigma'], p_dict['k']])
+                              p_dict['A'], 0.0, p_dict['sigma'], p_dict['k']])
             # On répète les paramètres pour chaque point de la grille
-            p_tensor = torch.tensor(p_vec, dtype=torch.float32).unsqueeze(0).repeat(len(X_flat), 1).to(device)
+            p_tensor = torch.tensor(p_vec, dtype=torch.float32).repeat(len(X_flat), 1).to(device)
 
-            # 5. Prédiction & Erreur
+            # e. Prédiction & Erreur
             with torch.no_grad():
                 u_pred = model(p_tensor, xt_tensor).cpu().numpy().flatten()
             

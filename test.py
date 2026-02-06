@@ -1,92 +1,96 @@
 import torch
-import os
+import numpy as np
 import sys
-import yaml
+import os
 
-# --- 1. GESTION DES CHEMINS ---
-project_root = os.getcwd()
-src_path = os.path.join(project_root, 'src')
-if src_path not in sys.path:
-    sys.path.append(src_path)
+# Ajout du chemin src pour les imports
+sys.path.append(os.path.join(os.getcwd(), 'src'))
 
-print("🔍 DÉBUT DU TEST D'INTÉGRATION (Mode YAML)")
-
-# --- 2. TEST DES IMPORTS ---
 try:
-    import src.physics.solver as test_solver
-    print(f"Contenu de solver.py : {dir(test_solver)}")
-    from src.training.smart_trainer import load_config
-    from src.models.adr import PI_DeepONet_ADR
     from src.data.generators import generate_mixed_batch
     from src.physics.adr import pde_residual_adr
-    from src.physics.solver import get_ground_truth_CN
-    print("✅ Imports : OK")
+    from src.models.adr import PI_DeepONet_ADR
+    print("✅ Imports réussis.")
 except ImportError as e:
-    print(f"❌ Erreur d'import : {e}")
+    print(f"❌ Erreur d'import. Es-tu bien à la racine ? {e}")
     sys.exit(1)
 
-def run_test():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def test_manual_grad():
+    print("\n--- 🛠️ TEST DE DIAGNOSTIC RAPIDE ---")
     
-    # 3. TEST CHARGEMENT YAML
-    config_path = os.path.join(src_path, "config_ADR.yaml")
-    if not os.path.exists(config_path):
-        print(f"❌ Fichier config introuvable : {config_path}")
-        return
+    # 1. Config Minimaliste (CORRIGÉE avec 'geometry')
+    dummy_cfg = {
+        'geometry': {
+            'x_min': -5.0,
+            'x_max': 5.0,
+            'T_max': 1.0
+        },
+        'model': {
+            'branch_depth': 2, 'branch_width': 20,
+            'trunk_depth': 2, 'trunk_width': 20, 
+            'latent_dim': 20,
+            'nFourier': 10, 'sFourier': [0, 1]
+        },
+        'physics_ranges': {
+            'v': [1.0, 1.0], 'D': [0.1, 0.1], 'mu': [0.1, 0.1],
+            'A': [1.0, 1.0], 'x0': [0, 0], 'sigma': [0.5, 0.5], 'k': [1, 1]
+        }
+    }
     
+    # Force CPU pour le test
+    device = torch.device('cpu')
+    print(f"📱 Device test : {device}")
+
+    # 2. Init Modèle
     try:
-        cfg = load_config(config_path)
-        print("✅ Chargement config_ADR.yaml : OK")
+        model = PI_DeepONet_ADR(dummy_cfg).to(device)
+        print("✅ Modèle initialisé.")
     except Exception as e:
-        print(f"❌ Erreur lecture YAML : {e}")
+        print(f"❌ Erreur Init Modèle : {e}")
         return
 
-    # 4. TEST INITIALISATION MODÈLE (Lien avec Config)
-    try:
-        model = PI_DeepONet_ADR(cfg).to(device)
-        print(f"✅ Initialisation modèle (Trunk Depth: {cfg['model']['trunk_depth']}) : OK")
-    except Exception as e:
-        print(f"❌ Erreur init modèle (Vérifie les clés du YAML) : {e}")
-        return
+    # 3. Génération du Batch
+    print("⚡ Appel de generate_mixed_batch...")
+    batch = generate_mixed_batch(
+        n_samples=100, 
+        bounds_phy=dummy_cfg['physics_ranges'], 
+        x_min=-5.0, x_max=5.0, Tmax=1.0,
+        device=device
+    )
+    
+    # Récupération des tenseurs
+    params, xt = batch[0], batch[1] 
 
-    # 5. TEST GÉNÉRATION DE DONNÉES (Lien avec Config)
-    try:
-        batch = generate_mixed_batch(
-            n_samples=128, 
-            bounds_phy=cfg['physics_ranges'],
-            x_min=cfg['geometry']['x_min'],
-            x_max=cfg['geometry']['x_max'],
-            Tmax=0.3,
-            device=device
-        )
-        print("✅ Génération Batch (generate_mixed_batch) : OK")
-    except Exception as e:
-        print(f"❌ Erreur génération batch (Signature ou clés YAML) : {e}")
-        return
+    # 4. VERIFICATION DU DRAPEAU
+    print(f"\n🧐 INSPECTION DU TENSEUR 'xt' :")
+    print(f"   -> Type : {type(xt)}")
+    print(f"   -> Shape : {xt.shape}")
+    print(f"   -> Requires Grad ? : {xt.requires_grad}")
 
-    # 6. TEST CALCUL PHYSIQUE (Autograd & Résidu)
+    if xt.requires_grad:
+        print("✅ OK : Le générateur active bien le gradient !")
+    else:
+        print("❌ ECHEC : Le générateur renvoie requires_grad=False.")
+        print("   👉 Le bug est confirmé dans generators.py (ou son cache).")
+
+    # 5. TEST DU CRASH (Calcul PDE)
+    print("\n🧮 Tentative de calcul du résidu PDE...")
     try:
-        params, xt, _, _, _, _, _, _ = batch
         res = pde_residual_adr(model, params, xt)
         loss = torch.mean(res**2)
+        
+        # Tente une backward pass
         loss.backward()
-        print("✅ Calcul Résidu & Backprop : OK")
+        
+        print("✅ SUCCÈS TOTAL : Le calcul PDE et la rétropropagation fonctionnent.")
+        print("   Le problème est résolu avec ce code.")
+        
+    except RuntimeError as e:
+        print(f"❌ CRASH DETECTÉ : {e}")
+        if "requires_grad" in str(e):
+            print("   👉 C'est exactement l'erreur de Jean Zay.")
     except Exception as e:
-        print(f"❌ Erreur physique/autograd : {e}")
-        return
-
-    # 7. TEST DU SOLVEUR (Audit)
-    try:
-        # On simule un dictionnaire de paramètres pour un type Tanh (0)
-        p_test = {'v': 1.0, 'D': 0.1, 'mu': 0.5, 'type': 0, 'A': 1.0, 'x0': 0.0, 'sigma': 0.5, 'k': 2.0}
-        X, T, U = get_ground_truth_CN(p_test, cfg, t_step_max=0.3)
-        print(f"✅ Solveur Crank-Nicolson (Audit) : OK (Shape: {U.shape})")
-    except Exception as e:
-        print(f"❌ Erreur Solveur/Audit : {e}")
-        return
-
-    print("\n🚀 TOUS LES VOYANTS SONT AU VERT !")
-    print("Le système est prêt pour le lancement multi-zones.")
+        print(f"❌ AUTRE ERREUR : {e}")
 
 if __name__ == "__main__":
-    run_test()
+    test_manual_grad()

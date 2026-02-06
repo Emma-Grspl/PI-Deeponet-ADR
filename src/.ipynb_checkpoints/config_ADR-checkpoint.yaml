@@ -34,22 +34,22 @@ model:
   trunk_width: 256
   latent_dim: 256
   # Encodage de Fourier
-  nFourier: 64
-  sFourier: [0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0]
+  nFourier: 128
+  sFourier: [0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 16.0, 24.0]
 
 # -------------------------------------------------------------------------
 # 4. HYPERPARAMÈTRES & LOGIQUE DE BOUCLE
 # -------------------------------------------------------------------------
 training:
-  learning_rate: 0.0003
+  learning_rate: 0.0001
   n_warmup: 7000           # Itérations initiales à t=0
   n_iters_per_step: 6000    # Itérations Adam Global
-  n_iters_correction: 3000  # <--- Ajout : Itérations pour la correction ciblée
+  n_iters_correction: 8000  # <--- Ajout : Itérations pour la correction ciblée
   n_sample: 12288          # Densité de points (On reste sur ta valeur haute)
   batch_size: 4096
   
   # Logique King of the Hill / Macro
-  nb_loop: 2                # Nombre de Cycles (Adam + LBFGS)
+  nb_loop: 3                # Nombre de Cycles (Adam + LBFGS)
   max_retry: 4              # Retries Adam par cycle
   threshold: 0.03           # Seuil Audit (3%)
   rolling_window: 2000      # Fenêtre pour le Rolling Check
@@ -61,7 +61,7 @@ loss_weights:
   weight_ic_init: 500.0     # Pour le début de la rampe
   weight_ic_final: 100.0    # Pour le mode NTK
   weight_bc: 100.0
-  first_w_res: 200.0        # Cible w_res à atteindre à t=0.3
+  first_w_res: 500.0        # Cible w_res à atteindre à t=0.3
 
 # -------------------------------------------------------------------------
 # 6. SOLVEUR & AUDIT
@@ -70,4 +70,4 @@ audit:
   Nx_solver: 500
   Nx_audit: 500
   Nt_audit: 200
-  save_dir: "./results"
+  save_dir: "./outputs"
