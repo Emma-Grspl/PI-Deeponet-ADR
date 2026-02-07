@@ -94,7 +94,7 @@ class KingOfTheHill:
         if current_loss < self.best_loss:
             self.best_loss = current_loss
             self.best_state = copy.deepcopy(model.state_dict())
-            # 👉 AJOUT DU PRINT DEMANDÉ ICI
+            print(f"      🏆 Nouveau Champion (Loss: {self.best_loss:.2e})")
             return True
         return False
 
@@ -106,19 +106,14 @@ class KingOfTheHill:
         return abs(avg_old - avg_new) / (avg_old + 1e-9) < 0.001
 
 # =============================================================================
-# 3. AUDIT SCIENTIFIQUE (SEED FIXE)
+# 3. AUDIT GLOBAL (SEED FIXE)
 # =============================================================================
 
 def audit_global_fast(model, t_max):
-    """ Audit sur 200 cas avec Seed FIXE pour comparabilité parfaite. """
     device = next(model.parameters()).device
     model.eval()
-    
-    # 🔒 SEED FIXE POUR STABILITÉ
     np.random.seed(42) 
-    
     errors = []
-    # On passe à 200 samples pour être statistiquement robuste
     for _ in range(200):
         p_dict = {k: np.random.uniform(v[0], v[1]) for k, v in cfg['physics_ranges'].items()}
         p_dict['type'] = np.random.randint(0, 5)
@@ -133,8 +128,6 @@ def audit_global_fast(model, t_max):
             err = np.linalg.norm(U_true.flatten() - u_pred_flat) / (np.linalg.norm(U_true.flatten()) + 1e-8)
             errors.append(err)
         except: continue
-    
-    # 🔓 ON LIBÈRE LA SEED
     np.random.seed(None)
 
     if not errors: return False, 1.0
@@ -143,135 +136,165 @@ def audit_global_fast(model, t_max):
     return avg_err < cfg['training']['threshold'], avg_err
 
 # =============================================================================
-# 4. TRAINING & CORRECTION
+# 4. TRAINING STRUCTURE (MIROIR GLOBAL / SPÉCIFIQUE)
 # =============================================================================
 
-def targeted_correction(model, bounds, t_max, failed_ids, n_iters):
-    """ Correction ciblée 80/20 avec Adam uniquement. """
-    print(f"\n🚑 CORRECTION CIBLÉE OBLIGATOIRE sur {failed_ids} ({n_iters} iters)")
+def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr):
+    """ 
+    Structure MIROIR de l'entraînement global : Macros -> Retries.
+    Utilise le batch spécifique (80/20) et l'audit spécifique.
+    Reprend le LR là où le global s'est arrêté.
+    """
+    print(f"\n🚑 CORRECTION STRUCTURÉE sur {failed_ids} (Start LR={start_lr:.2e})")
     device = next(model.parameters()).device
     
-    # Mix 80/20
+    # 👑 King spécifique
+    king_corr = KingOfTheHill(model)
+    
+    # --- PRÉPARATION DU BATCH SPÉCIFIQUE ---
     all_types = [0, 1, 2, 3, 4]
     weighted_types = []
     for tid in all_types:
-        if tid in failed_ids: weighted_types.extend([tid] * 4) 
-        else: weighted_types.extend([tid] * 1) 
+        if tid in failed_ids: weighted_types.extend([tid] * 4) # 80%
+        else: weighted_types.extend([tid] * 1) # 20%
+    print(f"   ⚖️  Batch Spécifique : Ratio 4:1")
 
-    print(f"   ⚖️  Mode Correction : Poids {len(weighted_types)} éléments (Ratio 4:1)")
-
+    # --- POIDS ---
     if t_max == 0.0:
         w_res_loc, w_bc_loc, w_ic_loc = 0.0, 0.0, 100.0
     else:
         w_res_loc, w_bc_loc, w_ic_loc = 500.0, cfg['loss_weights']['weight_bc'], 100.0
 
-    forced_lr = 5e-5 
-    opt = optim.Adam(model.parameters(), lr=forced_lr)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=n_iters, eta_min=1e-7)
+    current_lr = start_lr
+    correction_success = False
 
-    pbar = tqdm(range(n_iters), desc="💊 Correction Adam")
-    for i in pbar:
-        batch = generate_mixed_batch(cfg['training']['n_sample'], bounds, 
-                                     cfg['geometry']['x_min'], cfg['geometry']['x_max'], 
-                                     t_max, allowed_types=weighted_types)
-        params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
-        if not xt.requires_grad: xt.requires_grad_(True)
+    # --- BOUCLE MACRO CORRECTION ---
+    for macro in range(cfg['training']['nb_loop']):
+        print(f"    🚑 [Correction] Macro {macro+1}/{cfg['training']['nb_loop']}")
+        
+        # BOUCLE RETRY ADAM
+        for retry in range(cfg['training']['max_retry']):
+            model.load_state_dict(king_corr.best_state)
+            opt = optim.Adam(model.parameters(), lr=current_lr)
+            
+            pbar = tqdm(range(n_iters_base), desc=f"    Corr-Try {retry+1}", leave=False)
+            for i in pbar:
+                batch = generate_mixed_batch(cfg['training']['n_sample'], bounds, 
+                                             cfg['geometry']['x_min'], cfg['geometry']['x_max'], 
+                                             t_max, allowed_types=weighted_types)
+                params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
+                if not xt.requires_grad: xt.requires_grad_(True)
 
-        opt.zero_grad()
-        loss = get_loss(model, batch, w_res_loc, w_ic_loc, w_bc_loc) 
-        loss.backward()
-        opt.step()
-        scheduler.step()
+                opt.zero_grad()
+                loss = get_loss(model, batch, w_res_loc, w_ic_loc, w_bc_loc) 
+                loss.backward()
+                opt.step()
+                king_corr.update(model, loss.item())
+                
+                if i % 500 == 0: pbar.set_postfix({"Loss": f"{loss.item():.2e}"})
 
-        if (i+1) % 500 == 0: 
-            pbar.set_postfix({"Loss": f"{loss.item():.2e}"})
+            # AUDIT SPÉCIFIQUE
+            failed_now = diagnose_model(model, device, cfg, t_max=t_max)
+            if len(failed_now) == 0:
+                print("      🚀 SUCCESS CORRECTION (Adam).")
+                correction_success = True
+                break
+
+            current_lr *= 0.5 # Réduction LR si échec
+            
+        if correction_success: break
+        
+        # 2. L-BFGS (Seulement si loss déjà basse)
+        if king_corr.best_loss < 1e-2:
+            print("    ☢️ L-BFGS Finisher (Correction)...")
+            model.load_state_dict(king_corr.best_state)
+            
+            lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=500, line_search_fn="strong_wolfe")
+            def closure():
+                lbfgs.zero_grad()
+                b = generate_mixed_batch(cfg['training']['n_sample'], bounds, cfg['geometry']['x_min'], cfg['geometry']['x_max'], t_max, allowed_types=weighted_types)
+                p, xt_bfgs, xic, uic, bc_l, bc_r, ubc_l, ubc_r = b
+                if not xt_bfgs.requires_grad: xt_bfgs.requires_grad_(True)
+                b_safe = (p, xt_bfgs, xic, uic, bc_l, bc_r, ubc_l, ubc_r)
+                loss = get_loss(model, b_safe, w_res_loc, w_ic_loc, w_bc_loc)
+                loss.backward()
+                return loss
+            try: lbfgs.step(closure)
+            except: pass
+            
+            # Audit après L-BFGS
+            failed_now = diagnose_model(model, device, cfg, t_max=t_max)
+            if len(failed_now) == 0:
+                print("      🚀 SUCCESS CORRECTION (L-BFGS).")
+                correction_success = True
+                break
     
-    failed_now = diagnose_model(model, device, cfg, t_max=t_max)
-    return len(failed_now) == 0
+    if not correction_success:
+        print("🛑 ÉCHEC CORRECTION : Impossible de réparer les types spécifiques.")
+        return False
+    
+    return True
 
 def train_step_time_window(model, bounds, t_max, n_iters_main):
     device = next(model.parameters()).device
-    
-    # 👑 LE KING GLOBAL
     king = KingOfTheHill(model)
     
-    # Config poids
-    # --- CONFIGURATION DES POIDS (RAMPE DOUCE) ---
+    # --- CONFIG POIDS (RAMPE QUADRATIQUE) ---
     w_bc = cfg['loss_weights']['weight_bc']
-    
-    # On définit la fin de la période de chauffe (correspond à la fin de zone 2)
-    t_ramp_end = 0.3 
-    
+    t_ramp_end = 0.3
     if t_max <= t_ramp_end:
-        # MODE RAMPE PROGRESSIVE
-        # Avant : w_res commençait à 10.0 -> Trop violent
-        # Après : w_res commence à 0.1 -> Douceur absolue
         start_w_res = 0.1
-        target_w_res = cfg['loss_weights']['first_w_res'] # 500.0
-        
-        # Formule d'interpolation linéaire
+        target_w_res = cfg['loss_weights']['first_w_res']
         ratio = t_max / t_ramp_end
-        w_res = start_w_res + (target_w_res - start_w_res) * ratio
-        
-        # On garde l'IC très forte pour servir d'ancre pendant que la physique monte
+        w_res = start_w_res + (target_w_res - start_w_res) * (ratio * ratio) 
         w_ic = cfg['loss_weights']['weight_ic_init'] 
-        mode = f"RAMPE (w_res={w_res:.1f})"
+        mode = f"RAMPE DOUCE (w_res={w_res:.2f})"
     else:
-        # MODE CROISIÈRE (NTK)
         w_res, w_ic = cfg['loss_weights']['first_w_res'], cfg['loss_weights']['weight_ic_final']
         mode = "NTK"
-        
+
     print(f"\n🔵 PALIER t={t_max} | Mode: {mode}")
     current_lr = cfg['training']['learning_rate']
-    
-    # Flag pour savoir si on a fini l'entraînement (Global OK)
-    training_done = False
-    
-    # --- BOUCLE MACRO ---
+    global_success = False
+
+    # --- 1. PHASE GLOBALE ---
     for macro in range(cfg['training']['nb_loop']):
         print(f"    🌀 Macro {macro+1}/{cfg['training']['nb_loop']}")
         
-        # 1. Adam Retries
+        # Adam Retries
         for retry in range(cfg['training']['max_retry']):
-            model.load_state_dict(king.best_state) # On repart du champion
-            
+            model.load_state_dict(king.best_state)
             optimizer = optim.Adam(model.parameters(), lr=current_lr)
             for i in range(n_iters_main):
                 batch = generate_mixed_batch(cfg['training']['n_sample'], bounds, 
                                              cfg['geometry']['x_min'], cfg['geometry']['x_max'], t_max)
                 params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
                 if not xt.requires_grad: xt.requires_grad_(True)
-                
                 if mode == "NTK" and i % 100 == 0: w_res = compute_ntk_weights(model, batch, w_ic)
                 
                 optimizer.zero_grad()
                 loss = get_loss(model, batch, w_res, w_ic, w_bc)
                 loss.backward()
                 optimizer.step()
-                
                 king.update(model, loss.item())
 
                 if i % 1000 == 0:
                     r, c = monitor_gradients(model, batch)
                     print(f"      It {i} | Loss: {loss.item():.2e} | ForceRatio: {r:.2f} | CosSim: {c:.2f}")
 
-            # 🚀 FAST TRACK : Audit Immédiat après Adam
+            # Audit Global
             success_adam, err = audit_global_fast(model, t_max)
             if success_adam:
-                print("      🚀 SUCCESS GLOBAL (Adam). Passage à l'audit spécifique...")
-                training_done = True
-                break # Sort de la boucle 'retry'
-            
-            current_lr *= 0.5 # Si échec, on réduit le LR
+                print("      🚀 SUCCESS GLOBAL (Adam).")
+                global_success = True
+                break
+            current_lr *= 0.5
+        
+        if global_success: break
 
-        # Si Adam a réussi, on casse la boucle Macro aussi
-        if training_done:
-            break 
-
-        # 2. L-BFGS (Seulement si Adam n'a pas suffi)
+        # L-BFGS
         print("    ☢️ L-BFGS Finisher...")
         model.load_state_dict(king.best_state)
-        
         _, err_before = audit_global_fast(model, t_max)
         
         lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=500, line_search_fn="strong_wolfe")
@@ -288,25 +311,23 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
         except: pass
         
         success_lbfgs, err_after = audit_global_fast(model, t_max)
-        
         if err_after > err_before:
-            print(f"      🛡️ L-BFGS a dégradé ({err_before:.2%} -> {err_after:.2%}). ROLLBACK.")
-            model.load_state_dict(king.best_state) 
+            print(f"      🛡️ L-BFGS dégradé. ROLLBACK.")
+            model.load_state_dict(king.best_state)
         else:
-            print(f"      ✅ L-BFGS amélioration/maintien ({err_before:.2%} -> {err_after:.2%}).")
             if success_lbfgs:
-                print("      🚀 SUCCESS GLOBAL (L-BFGS). Passage à l'audit spécifique...")
-                training_done = True
-                break # Sort de la boucle Macro
+                print("      🚀 SUCCESS GLOBAL (L-BFGS).")
+                global_success = True
+                break
 
-    # --- LE JUGE DE PAIX : DIAGNOSTIC SPÉCIFIQUE OBLIGATOIRE ---
-    # On arrive TOUJOURS ici, que ce soit par succès rapide ou fin des itérations
+    # Stop si échec global après tous les essais
+    if not global_success:
+        print("🛑 ÉCHEC GLOBAL : Seuil non atteint.")
+        return False, 1.0
+
+    # --- 2. PHASE SPÉCIFIQUE (OBLIGATOIRE) ---
     print("\n🔍 AUDIT FINAL OBLIGATOIRE PAR TYPE...")
-    
-    # On s'assure d'avoir le meilleur modèle chargé
-    if not training_done: # Si on est sorti par épuisement des boucles
-        model.load_state_dict(king.best_state)
-
+    model.load_state_dict(king.best_state)
     failed_ids = diagnose_model(model, device, cfg, t_max=t_max)
     
     if len(failed_ids) == 0:
@@ -314,24 +335,28 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
         _, final_err = audit_global_fast(model, t_max)
         return True, final_err
     else:
-        print(f"⚠️ Échec spécifique sur {failed_ids} malgré succès global. Correction...")
-        if targeted_correction(model, bounds, t_max, failed_ids, cfg['training']['n_iters_correction']):
+        # On passe le LR actuel pour la continuité
+        print(f"⚠️ Échec spécifique. Correction avec LR={current_lr:.2e}")
+        if targeted_correction(model, bounds, t_max, failed_ids, cfg['training']['n_iters_correction'], start_lr=current_lr):
             _, final_err = audit_global_fast(model, t_max)
             return True, final_err
         else:
-            print("🛑 Correction échouée.")
             return False, 1.0
 
 def train_smart_time_marching(model, bounds):
     device = next(model.parameters()).device
     
-    # PHASE 0 : WARMUP
+    # -------------------------------------------------------
+    # PHASE 0 : WARMUP (Global -> Spécifique)
+    # -------------------------------------------------------
     n_warmup = cfg['training'].get('n_warmup', 0)
     if n_warmup > 0:
         print(f"\n🧊 PHASE 0 : WARMUP ({n_warmup} iters)")
         optimizer = optim.Adam(model.parameters(), lr=cfg['training']['learning_rate'])
         king = KingOfTheHill(model)
         model.train()
+        
+        # 1. Entraînement Initial
         for i in range(n_warmup):
             optimizer.zero_grad()
             batch = generate_mixed_batch(cfg['training']['batch_size'], bounds, cfg['geometry']['x_min'], cfg['geometry']['x_max'], 0.0)
@@ -344,13 +369,24 @@ def train_smart_time_marching(model, bounds):
         
         model.load_state_dict(king.best_state)
         
-        # Diagnostic Warmup
+        # 2. AUDIT GLOBAL
+        print("🔎 Audit Warmup Global...")
+        success_w, err_w = audit_global_fast(model, 0.0)
+        
+        # 3. AUDIT SPÉCIFIQUE
         failed_warmup = diagnose_model(model, device, cfg, t_max=0.0)
+        
         if failed_warmup:
-            targeted_correction(model, bounds, 0.0, failed_warmup, 5000)
-        audit_global_fast(model, 0.0)
+            print(f"⚠️ Warmup incomplet sur {failed_warmup}. Correction immédiate...")
+            if not targeted_correction(model, bounds, 0.0, failed_warmup, 5000, start_lr=cfg['training']['learning_rate']):
+                 print("❌ ÉCHEC CRITIQUE WARMUP : Impossible d'apprendre l'IC.")
+                 return model
+            # Re-Audit après correction
+            audit_global_fast(model, 0.0)
 
-    # PHASE 1
+    # -------------------------------------------------------
+    # PHASE 1 : TIME MARCHING (Global -> Spécifique)
+    # -------------------------------------------------------
     time_steps = generate_time_steps()
     print(f"⚡ TRAINING MULTI-ZONES : {time_steps}")
     for t_step in time_steps:
@@ -359,5 +395,6 @@ def train_smart_time_marching(model, bounds):
             torch.save({'t_max': t_step, 'model_state_dict': model.state_dict()}, f"{cfg['audit']['save_dir']}/model_checkpoint_t{t_step}.pth")
             print(f"✅ Palier t={t_step} OK.")
         else:
-            print(f"🛑 Échec à t={t_step}."); break
+            print(f"🛑 Arrêt prématuré à t={t_step}."); break
+            
     return model
