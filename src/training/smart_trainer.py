@@ -95,7 +95,6 @@ class KingOfTheHill:
             self.best_loss = current_loss
             self.best_state = copy.deepcopy(model.state_dict())
             # 👉 AJOUT DU PRINT DEMANDÉ ICI
-            print(f"      🏆 Nouveau Champion (Loss: {self.best_loss:.2e})")
             return True
         return False
 
