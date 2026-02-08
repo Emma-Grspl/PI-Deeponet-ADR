@@ -36,16 +36,28 @@ def generate_time_steps():
     return steps
 
 def find_latest_checkpoint(save_dir):
-    """ 🕵️ SCANNE LE DOSSIER POUR TROUVER LE DERNIER t=X.pth """
-    # On cherche tous les fichiers qui ressemblent à model_checkpoint_t*.pth
-    files = glob.glob(f"{save_dir}/model_checkpoint_t*.pth")
-    if not files: return None, 0.0
+    import os, glob, re
+    
+    # Force le chemin en absolu pour éviter les pièges de dossier courant
+    abs_save_dir = os.path.abspath(save_dir)
+    pattern = os.path.join(abs_save_dir, "model_checkpoint_t*.pth")
+    
+    print(f"\n🔍 [DEBUG REPRISE]")
+    print(f"   📂 Dossier cible : {abs_save_dir}")
+    print(f"   🔍 Pattern glob  : {pattern}")
+    
+    files = glob.glob(pattern)
+    print(f"   📄 Fichiers trouvés : {len(files)}")
+    if len(files) > 0:
+        print(f"   📋 Liste : {[os.path.basename(f) for f in files[:3]]}...")
+
+    if not files:
+        return None, 0.0
     
     max_t = -1.0
     best_file = None
     
     for f in files:
-        # Regex pour extraire le nombre flottant après _t
         match = re.search(r"model_checkpoint_t([\d\.]+)\.pth", f)
         if match:
             t_val = float(match.group(1))
@@ -53,6 +65,7 @@ def find_latest_checkpoint(save_dir):
                 max_t = t_val
                 best_file = f
                 
+    print(f"   🏆 Meilleur candidat : {best_file} (t={max_t})")
     return best_file, max_t
 
 def get_loss(model, batch, wr, wi, wb):
@@ -115,7 +128,7 @@ class KingOfTheHill:
         if current_loss < self.best_loss:
             self.best_loss = current_loss
             self.best_state = copy.deepcopy(model.state_dict())
-            print(f"      🏆 Nouveau Champion (Loss: {self.best_loss:.2e})")
+            #print(f"      🏆 Nouveau Champion (Loss: {self.best_loss:.2e})")
             return True
         return False
 
