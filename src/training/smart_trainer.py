@@ -338,14 +338,19 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
 
 def train_smart_time_marching(model, bounds):
     device = next(model.parameters()).device
-    # On force le dossier défini dans le YAML (celui où tu as copié le fichier)
-    save_dir = cfg['audit']['save_dir']
+    
+    # 1. DOSSIER DE LECTURE (Fixe pour trouver le t1.2)
+    load_dir = "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/outputs/checkpoints_shared"
+    
+    # 2. DOSSIER D'ÉCRITURE (Le run actuel)
+    # On garde ce que le YAML ou train.py a envoyé
+    save_dir = cfg['audit']['save_dir'] 
     os.makedirs(save_dir, exist_ok=True)
     
-    # 🕵️ REPRISE AUTOMATIQUE
-    latest_file, max_t = find_latest_checkpoint(save_dir)
+    # 🕵️ REPRISE AUTOMATIQUE (On cherche dans load_dir !)
+    latest_file, max_t = find_latest_checkpoint(load_dir)
     reprise_active = False
-    
+
     if latest_file:
         print(f"\n🔄 REPRISE DÉTECTÉE : Chargement du checkpoint t={max_t}...")
         try:
