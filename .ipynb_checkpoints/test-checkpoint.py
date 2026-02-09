@@ -1,96 +1,40 @@
 import torch
-import numpy as np
+import yaml
 import sys
 import os
+import numpy as np
 
-# Ajout du chemin src pour les imports
-sys.path.append(os.path.join(os.getcwd(), 'src'))
+# Imports
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+from src.models.adr import PI_DeepONet_ADR
 
-try:
-    from src.data.generators import generate_mixed_batch
-    from src.physics.adr import pde_residual_adr
-    from src.models.adr import PI_DeepONet_ADR
-    print("✅ Imports réussis.")
-except ImportError as e:
-    print(f"❌ Erreur d'import. Es-tu bien à la racine ? {e}")
-    sys.exit(1)
+# Config
+with open("src/config_ADR.yaml", 'r') as f: cfg = yaml.safe_load(f)
 
-def test_manual_grad():
-    print("\n--- 🛠️ TEST DE DIAGNOSTIC RAPIDE ---")
-    
-    # 1. Config Minimaliste (CORRIGÉE avec 'geometry')
-    dummy_cfg = {
-        'geometry': {
-            'x_min': -5.0,
-            'x_max': 5.0,
-            'T_max': 1.0
-        },
-        'model': {
-            'branch_depth': 2, 'branch_width': 20,
-            'trunk_depth': 2, 'trunk_width': 20, 
-            'latent_dim': 20,
-            'nFourier': 10, 'sFourier': [0, 1]
-        },
-        'physics_ranges': {
-            'v': [1.0, 1.0], 'D': [0.1, 0.1], 'mu': [0.1, 0.1],
-            'A': [1.0, 1.0], 'x0': [0, 0], 'sigma': [0.5, 0.5], 'k': [1, 1]
-        }
-    }
-    
-    # Force CPU pour le test
-    device = torch.device('cpu')
-    print(f"📱 Device test : {device}")
+# Modèle
+device = torch.device("cpu")
+model = PI_DeepONet_ADR(cfg).to(device)
 
-    # 2. Init Modèle
-    try:
-        model = PI_DeepONet_ADR(dummy_cfg).to(device)
-        print("✅ Modèle initialisé.")
-    except Exception as e:
-        print(f"❌ Erreur Init Modèle : {e}")
-        return
+# Chargement Poids
+path = "run_20260208-092447/model_final.pth" # Vérifie le chemin !
+ckpt = torch.load(path, map_location=device)
+model.load_state_dict(ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt)
+model.eval()
 
-    # 3. Génération du Batch
-    print("⚡ Appel de generate_mixed_batch...")
-    batch = generate_mixed_batch(
-        n_samples=100, 
-        bounds_phy=dummy_cfg['physics_ranges'], 
-        x_min=-5.0, x_max=5.0, Tmax=1.0,
-        device=device
-    )
-    
-    # Récupération des tenseurs
-    params, xt = batch[0], batch[1] 
+# Test idiot
+print("\n--- TEST DE SURVIE ---")
+# On crée un vecteur d'entrée bidon mais valide
+# 8 paramètres physiques
+p = torch.tensor([[1.0, 0.1, 0.5, 0.0, 1.0, 0.0, 0.5, 2.0]], dtype=torch.float32)
+# 2 coordonnées (x=0, t=0.5)
+xt = torch.tensor([[0.0, 0.5]], dtype=torch.float32)
 
-    # 4. VERIFICATION DU DRAPEAU
-    print(f"\n🧐 INSPECTION DU TENSEUR 'xt' :")
-    print(f"   -> Type : {type(xt)}")
-    print(f"   -> Shape : {xt.shape}")
-    print(f"   -> Requires Grad ? : {xt.requires_grad}")
+with torch.no_grad():
+    pred = model(p, xt)
 
-    if xt.requires_grad:
-        print("✅ OK : Le générateur active bien le gradient !")
-    else:
-        print("❌ ECHEC : Le générateur renvoie requires_grad=False.")
-        print("   👉 Le bug est confirmé dans generators.py (ou son cache).")
+print(f"Prédiction du modèle pour (x=0, t=0.5) : {pred.item():.4f}")
 
-    # 5. TEST DU CRASH (Calcul PDE)
-    print("\n🧮 Tentative de calcul du résidu PDE...")
-    try:
-        res = pde_residual_adr(model, params, xt)
-        loss = torch.mean(res**2)
-        
-        # Tente une backward pass
-        loss.backward()
-        
-        print("✅ SUCCÈS TOTAL : Le calcul PDE et la rétropropagation fonctionnent.")
-        print("   Le problème est résolu avec ce code.")
-        
-    except RuntimeError as e:
-        print(f"❌ CRASH DETECTÉ : {e}")
-        if "requires_grad" in str(e):
-            print("   👉 C'est exactement l'erreur de Jean Zay.")
-    except Exception as e:
-        print(f"❌ AUTRE ERREUR : {e}")
-
-if __name__ == "__main__":
-    test_manual_grad()
+# Vérif des buffers de normalisation interne
+print(f"Normalisation v_min dans le modèle : {model.v_min.item()}")
+print(f"Normalisation v_max dans le modèle : {model.v_max.item()}")
+print("Si ces valeurs ne correspondent pas à ton YAML, c'est le problème.")
