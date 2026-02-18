@@ -421,5 +421,58 @@ def train_smart_time_marching(model, bounds):
             print(f"✅ Palier t={t_step} OK.")
         else:
             print(f"🛑 Arrêt prématuré à t={t_step}."); break
+
+    # =========================================================================
+    # 🏁 PHASE FINALE : POLISSAGE "ELITE" (< 2%)
+    # =========================================================================
+    print("\n💎 DÉBUT DU POLISSAGE FINAL (Objectif: < 2% partout)...")
+
+    # 1. On recharge le meilleur checkpoint global pour être sûr de partir du top
+    final_t = cfg['geometry']['T_max']
+    # On cherche le fichier correspondant au temps max (ou celui où on s'est arrêté)
+    last_checkpoint_path = f"{save_dir}/model_checkpoint_t{time_steps[-1]}.pth"
+    
+    if os.path.exists(last_checkpoint_path):
+        print(f"📥 Chargement du checkpoint final : {last_checkpoint_path}")
+        checkpoint = torch.load(last_checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+
+    # 2. Diagnostic STRICT à 2% (0.02)
+    target_strict = 0.02
+    # Note : On passe explicitement le threshold ici pour écraser la valeur du YAML
+    failed_ids = diagnose_model(model, device, cfg, threshold=target_strict, t_max=final_t)
+
+    if len(failed_ids) > 0:
+        print(f"⚠️ Familles au-dessus de {target_strict:.1%} : {failed_ids}")
+        print(f"🛠️ Lancement du Fine-Tuning Spécifique...")
+
+        # 3. Lancement de la correction déséquilibrée
+        # TRUC CRUCIAL : On baisse le LR (1e-5) pour "polir" sans casser les acquis (Tanh à 0.74%)
+        success_polish = targeted_correction(
+            model, 
+            bounds, 
+            t_max=final_t, 
+            failed_ids=failed_ids, 
+            n_iters_base=15000,   # On lui donne du temps (8000 iters)
+            start_lr=1e-5        # LR très doux (10x plus petit que le LR d'entrainement)
+        )
+
+        if success_polish:
+            print("✨ OBJECTIF 2% ATTEINT ! Sauvegarde du modèle Elite.")
+            torch.save({
+                't_max': final_t, 
+                'model_state_dict': model.state_dict(),
+                'note': 'Polished < 2%'
+            }, f"{save_dir}/model_final_elite_2percent.pth")
             
+            # Petit audit final pour le plaisir des yeux
+            diagnose_model(model, device, cfg, threshold=target_strict, t_max=final_t)
+        else:
+            print("🔸 Le modèle a progressé mais n'a pas cassé la barre des 2% partout.")
+            # On sauvegarde quand même cette version améliorée
+            torch.save(model.state_dict(), f"{save_dir}/model_final_improved.pth")
+
+    else:
+        print("🎉 INCROYABLE ! Le modèle est déjà sous les 2% partout. Rien à faire.")
+
     return model
