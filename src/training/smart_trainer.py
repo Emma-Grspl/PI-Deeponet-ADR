@@ -128,7 +128,6 @@ class KingOfTheHill:
         if current_loss < self.best_loss:
             self.best_loss = current_loss
             self.best_state = copy.deepcopy(model.state_dict())
-            #print(f"      🏆 Nouveau Champion (Loss: {self.best_loss:.2e})")
             return True
         return False
 
@@ -142,15 +141,12 @@ def audit_global_fast(model, t_max):
     np.random.seed(42) 
     errors = []
     
-    # --- CHOIX DU SEUIL DYNAMIQUE ---
-    # Si t=0 (Warmup/IC), on prend le seuil strict. Sinon, le seuil de propagation.
     if t_max == 0.0:
         target_threshold = cfg['training'].get('threshold_ic', cfg['training'].get('threshold', 0.01))
         mode_str = "IC (Strict)"
     else:
         target_threshold = cfg['training'].get('threshold_step', cfg['training'].get('threshold', 0.05))
         mode_str = "Step (Relaxed)"
-    # --------------------------------
 
     for _ in range(200):
         p_dict = {k: np.random.uniform(v[0], v[1]) for k, v in cfg['physics_ranges'].items()}
@@ -175,7 +171,8 @@ def audit_global_fast(model, t_max):
     
     return avg_err < target_threshold, avg_err
 
-def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr):
+# ---> MODIFICATION ICI : Ajout de target_threshold=None
+def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr, target_threshold=None):
     print(f"\n🚑 CORRECTION STRUCTURÉE sur {failed_ids} (Start LR={start_lr:.2e})")
     device = next(model.parameters()).device
     king_corr = KingOfTheHill(model)
@@ -212,7 +209,8 @@ def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr
                 king_corr.update(model, loss.item())
                 if i % 500 == 0: pbar.set_postfix({"Loss": f"{loss.item():.2e}"})
 
-            failed_now = diagnose_model(model, device, cfg, t_max=t_max)
+            # ---> MODIFICATION ICI : On passe target_threshold à diagnose_model
+            failed_now = diagnose_model(model, device, cfg, threshold=target_threshold, t_max=t_max)
             if len(failed_now) == 0:
                 print("      🚀 SUCCESS CORRECTION (Adam).")
                 correction_success = True
@@ -237,7 +235,8 @@ def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr
             try: lbfgs.step(closure)
             except: pass
             
-            failed_now = diagnose_model(model, device, cfg, t_max=t_max)
+            # ---> MODIFICATION ICI : On passe target_threshold à diagnose_model
+            failed_now = diagnose_model(model, device, cfg, threshold=target_threshold, t_max=t_max)
             if len(failed_now) == 0:
                 print("      🚀 SUCCESS CORRECTION (L-BFGS).")
                 correction_success = True
@@ -411,7 +410,7 @@ def train_smart_time_marching(model, bounds):
     print(f"⚡ TRAINING MULTI-ZONES : {time_steps}")
     
     for t_step in time_steps:
-        # ⏭️ SKIP si déjà fait (C'EST ICI LA MAGIE)
+        # ⏭️ SKIP si déjà fait
         if reprise_active and t_step <= max_t + 1e-5:
             continue
             
@@ -439,22 +438,21 @@ def train_smart_time_marching(model, bounds):
 
     # 2. Diagnostic STRICT à 2% (0.02)
     target_strict = 0.02
-    # Note : On passe explicitement le threshold ici pour écraser la valeur du YAML
     failed_ids = diagnose_model(model, device, cfg, threshold=target_strict, t_max=final_t)
 
     if len(failed_ids) > 0:
         print(f"⚠️ Familles au-dessus de {target_strict:.1%} : {failed_ids}")
         print(f"🛠️ Lancement du Fine-Tuning Spécifique...")
 
-        # 3. Lancement de la correction déséquilibrée
-        # TRUC CRUCIAL : On baisse le LR (1e-5) pour "polir" sans casser les acquis (Tanh à 0.74%)
+        # ---> MODIFICATION ICI : On passe target_threshold=target_strict
         success_polish = targeted_correction(
             model, 
             bounds, 
             t_max=final_t, 
             failed_ids=failed_ids, 
-            n_iters_base=15000,   # On lui donne du temps (8000 iters)
-            start_lr=1e-5        # LR très doux (10x plus petit que le LR d'entrainement)
+            n_iters_base=15000,   
+            start_lr=1e-5,        
+            target_threshold=target_strict 
         )
 
         if success_polish:
@@ -465,11 +463,9 @@ def train_smart_time_marching(model, bounds):
                 'note': 'Polished < 2%'
             }, f"{save_dir}/model_final_elite_2percent.pth")
             
-            # Petit audit final pour le plaisir des yeux
             diagnose_model(model, device, cfg, threshold=target_strict, t_max=final_t)
         else:
             print("🔸 Le modèle a progressé mais n'a pas cassé la barre des 2% partout.")
-            # On sauvegarde quand même cette version améliorée
             torch.save(model.state_dict(), f"{save_dir}/model_final_improved.pth")
 
     else:
