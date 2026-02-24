@@ -55,4 +55,4 @@ audit:
   Nx_solver: 500
   Nx_audit: 500
   Nt_audit: 200
-  save_dir: "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/outputs/checkpoints_shared"
+  save_dir: "outputs/checkpoints_shared"

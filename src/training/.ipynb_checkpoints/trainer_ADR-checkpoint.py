@@ -207,7 +207,7 @@ class KingOfTheHill:
             return True
         return False
 
-#Gobal audit 
+#Global audit 
 def audit_global_fast(model, t_max):
     """
     Performs a quick audit of the L2 relative error across the entire domain. Statistically checks (on 200 random cases) if the model meets
@@ -253,7 +253,41 @@ the set accuracy thresholds (threshold_ic or threshold_step) before proceeding t
     
     return avg_err < target_threshold, avg_err
 
-def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr, target_threshold=None):
+def get_t_failed(model, cfg, threshold=0.04):
+    """
+    Nouveau helper : Identifie le premier point temporel où le modèle décroche.
+    """
+    print(f"🔍 Recherche du point de bascule temporel (t_failed) pour batch 80/20...")
+    device = next(model.parameters()).device
+    model.eval()
+    t_evals = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    
+    for t_val in t_evals:
+        errors = []
+        for _ in range(15):
+            p_dict = {k: np.random.uniform(v[0], v[1]) for k, v in cfg['physics_ranges'].items()}
+            p_dict['type'] = np.random.choice([0, 1, 3])
+            try:
+                X_grid, T_grid, U_true = get_ground_truth_CN(p_dict, cfg, t_step_max=t_val)
+                x_flat, t_flat = X_grid.flatten(), T_grid.flatten()
+                p_vec = np.array([p_dict['v'], p_dict['D'], p_dict['mu'], p_dict['type'], 
+                                  p_dict['A'], 0.0, p_dict['sigma'], p_dict['k']])
+                p_tensor = torch.tensor(p_vec, dtype=torch.float32).repeat(len(x_flat), 1).to(device)
+                xt_tensor = torch.tensor(np.stack([x_flat, t_flat], axis=1), dtype=torch.float32).to(device)
+                with torch.no_grad():
+                    u_pred_flat = model(p_tensor, xt_tensor).cpu().numpy().flatten()
+                err = np.linalg.norm(U_true.flatten() - u_pred_flat) / (np.linalg.norm(U_true.flatten()) + 1e-8)
+                errors.append(err)
+            except: continue
+        
+        if errors and np.mean(errors) > threshold:
+            print(f"⚠️ Décrochage détecté à t={t_val} (Erreur: {np.mean(errors):.2%})")
+            return max(0.1, t_val) 
+            
+    print("✅ Le modèle semble robuste partout, fallback de t_failed à 1.5s")
+    return 1.5
+
+def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr, target_threshold=None, apply_80_20=False):
     """
     Launches an intensive training phase on the types of ICs that failed the audit.Uses biased sampling (oversampling of difficult types) and a hybrid optimizer (Adam + L-BFGS) to correct specific errors detected by the diagnostic.
 
@@ -265,6 +299,7 @@ def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr
         n_iters_base(int): Number of iterations.
         start_lr(float): Initial learning rate.
         target_threshold(float, optional): Specific success threshold.
+        apply_80_20(bool): Activer l'échantillonnage temporel 80% échec / 20% succès.
     Outputs:
         bool: True if the correction successfully validated all types.
     """
@@ -287,19 +322,46 @@ def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr
     current_lr = start_lr
     correction_success = False
 
+    # Evaluation du t_failed si option 80/20 active
+    t_failed = None
+    if apply_80_20 and target_threshold is not None:
+        t_failed = get_t_failed(model, cfg, threshold=target_threshold)
+
     for macro in range(cfg['training']['nb_loop']):
         print(f" Macro {macro+1}/{cfg['training']['nb_loop']}")
         for retry in range(cfg['training']['max_retry']):
             model.load_state_dict(king_corr.best_state)
             opt = optim.Adam(model.parameters(), lr=current_lr)
             
-            pbar = tqdm(range(n_iters_base), desc=f"    Corr-Try {retry+1}", leave=False)
+            pbar = tqdm(range(n_iters_base), desc=f"   Corr-Try {retry+1}", leave=False)
             for i in pbar:
                 batch = generate_mixed_batch(cfg['training']['n_sample'], bounds, 
                                              cfg['geometry']['x_min'], cfg['geometry']['x_max'], 
                                              t_max, allowed_types=weighted_types)
-                params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
-                if not xt.requires_grad: xt.requires_grad_(True)
+                params, xt, xt_ic, u_true_ic, xt_bc_l, xt_bc_r, u_true_bc_l, u_true_bc_r = batch
+                
+                # --- NOUVEAU : Application du Split Temporel 80/20 ---
+                if apply_80_20 and t_failed is not None and t_max > t_failed:
+                    n_samples = xt.shape[0]
+                    n_fail = int(0.8 * n_samples)
+                    n_pass = n_samples - n_fail
+                    
+                    t_pass = torch.rand(n_pass, 1) * t_failed
+                    t_fail = torch.rand(n_fail, 1) * (t_max - t_failed) + t_failed
+                    
+                    new_t = torch.cat([t_pass, t_fail], dim=0)
+                    new_t = new_t[torch.randperm(n_samples)].to(device)
+                    
+                    # Remplacement sécurisé pour l'Autograd
+                    xt_new = xt.clone().detach()
+                    xt_new[:, 1:2] = new_t
+                    xt_new.requires_grad_(True)
+                    xt = xt_new
+                    batch = (params, xt, xt_ic, u_true_ic, xt_bc_l, xt_bc_r, u_true_bc_l, u_true_bc_r)
+                else:
+                    if not xt.requires_grad: xt.requires_grad_(True)
+                # -----------------------------------------------------
+
                 opt.zero_grad()
                 loss = get_loss(model, batch, w_res_loc, w_ic_loc, w_bc_loc) 
                 loss.backward()
@@ -474,28 +536,34 @@ def train_smart_time_marching(model, bounds):
 """
     device = next(model.parameters()).device
     
-    #dir resume
-    load_dir = "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/outputs/checkpoints_shared"
+    # FORCAGE : On pointe directement sur le dossier du supercalculateur pour forcer la reprise
+    load_dir = "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/results/run_20260218-115306"
     
     # Writing folder
     save_dir = cfg['audit']['save_dir'] 
     os.makedirs(save_dir, exist_ok=True)
     
-    #Automatic resume
-    latest_file, max_t = find_latest_checkpoint(load_dir)
+    # Reprise forcée au temps 1.0
+    forced_t = 1.0
+    latest_file = os.path.join(load_dir, f"model_checkpoint_t{forced_t}.pth")
+    max_t = forced_t
     reprise_active = False
 
-    if latest_file:
-        print(f"Resumption detected. Checkpoint t={max_t}...")
+    if os.path.exists(latest_file):
+        print(f"FORCED Resumption detected. Checkpoint t={max_t} ({latest_file})...")
         try:
             checkpoint = torch.load(latest_file, map_location=device)
-            model.load_state_dict(checkpoint['model_state_dict'])
+            if 'model_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'])
+            else:
+                model.load_state_dict(checkpoint)
             reprise_active = True
         except Exception as e:
             print(f"Err checkpoints loading : {e}. Reset and restart at 0")
             max_t = -1.0
     else:
-        print("Starting a new training")
+        print(f"⚠️ Fichier {latest_file} introuvable ! Starting a new training")
+        max_t = -1.0
 
     # WARMUP IC
     if not reprise_active or max_t <= 0.0:
@@ -559,7 +627,7 @@ def train_smart_time_marching(model, bounds):
 
     if len(failed_ids) > 0:
         print(f"IC above {target_strict:.1%} : {failed_ids}")
-        print(f"Launching specific training")
+        print(f"Launching specific training WITH 80/20 TIME BIASED SAMPLING")
 
         success_polish = targeted_correction(
             model, 
@@ -568,7 +636,8 @@ def train_smart_time_marching(model, bounds):
             failed_ids=failed_ids, 
             n_iters_base=15000,   
             start_lr=1e-5,        
-            target_threshold=target_strict 
+            target_threshold=target_strict,
+            apply_80_20=True # <--- Activation du batch biaisé !
         )
 
         if success_polish:

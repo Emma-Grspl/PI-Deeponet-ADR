@@ -3,7 +3,7 @@ audit:
   Nt_audit: 200
   Nx_audit: 500
   Nx_solver: 500
-  save_dir: /lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/outputs/checkpoints_shared
+  save_dir: "outputs/checkpoints_shared"
 #GEOMETRY
 geometry:
   T_max: 3.0
@@ -68,14 +68,14 @@ time_stepping:
     t_end: 3.0
 #TRAINING
 training:
-  batch_size: 4096
+  batch_size: 8192
   learning_rate: 6.078744921577277e-05
   max_retry: 4
-  n_iters_correction: 8000
-  n_iters_per_step: 6000
+  n_iters_correction: 9000
+  n_iters_per_step: 8000
   n_sample: 12288
   n_warmup: 7000
   nb_loop: 3
   rolling_window: 2000
   threshold_ic: 0.02
-  threshold_step: 0.05
+  threshold_step: 0.03

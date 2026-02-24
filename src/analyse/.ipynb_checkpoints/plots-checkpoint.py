@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib import cm
 import torch
+import yaml
 
 file_path = os.path.abspath(__file__) 
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(file_path)))
@@ -142,9 +143,43 @@ def analyse_results(mode="CN", model=None, device='cpu'):
     print(f"Output folder : {out_dir}")
 
 if __name__ == "__main__":
-    analyse_results(mode="CN")
+    import yaml
     
-    #PI_DeepOnet
-    # model = PI_DeepONet_ADR(cfg)
-    # model.load_state_dict(torch.load("outputs/checkpoints_shared/model_best_validation.pth"))
-    # analyse_classical_solver(mode="DeepONet", model=model, device="cuda")
+    #Classical Soler
+    #analyse_results(mode="CN")
+        
+    #DeepOnet
+    config_path = os.path.join(project_root, "configs", "config_ADR.yaml")
+    try:
+        with open(config_path, 'r') as f:
+            cfg = yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f"Err : {config_path}")
+        sys.exit(1)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+
+    try:
+        from src.models.PI_DeepOnet_ADR import PI_DeepONet_ADR 
+    except ImportError as e:
+        print(f"Err : {e}")
+        sys.exit(1)
+
+    model = PI_DeepONet_ADR(cfg).to(device)
+    model_path = os.path.join(project_root, "models_saved", "model_best_validation.pth")
+    
+    if os.path.exists(model_path):
+        print(f"Loading weights : {model_path}")
+        checkpoint = torch.load(model_path, map_location=device)
+        
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(checkpoint)
+            
+        print("Everything ok")
+    else:
+        print(f"Err : {model_path}")
+        sys.exit(1)
+
+    analyse_results(mode="DeepONet", model=model, device=device)
