@@ -316,8 +316,12 @@ def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr
         if tid in failed_ids: weighted_types.extend([tid] * 4) 
         else: weighted_types.extend([tid] * 1) 
 
-    if t_max == 0.0: w_res_loc, w_bc_loc, w_ic_loc = 0.0, 0.0, 100.0
-    else: w_res_loc, w_bc_loc, w_ic_loc = 500.0, cfg['loss_weights']['weight_bc'], 100.0
+    w_bc_loc = cfg['loss_weights']['weight_bc']
+    if t_max == 0.0: 
+        w_res_loc, w_ic_loc = 0.0, 100.0
+    else: 
+        w_res_loc = cfg['loss_weights']['first_w_res'] # Sera mis à jour par le NTK
+        w_ic_loc = cfg['loss_weights']['weight_ic_final']
 
     current_lr = start_lr
     correction_success = False
