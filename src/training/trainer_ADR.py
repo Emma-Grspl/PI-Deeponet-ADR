@@ -537,14 +537,14 @@ def train_smart_time_marching(model, bounds):
     device = next(model.parameters()).device
     
     # FORCAGE : On pointe directement sur le dossier du supercalculateur pour forcer la reprise
-    load_dir = "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/results/run_20260217-153828"
+    load_dir = "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/results/run_20260224-145625"
     
     # Writing folder
     save_dir = cfg['audit']['save_dir'] 
     os.makedirs(save_dir, exist_ok=True)
     
     # Reprise forcée au temps 1.0
-    forced_t = 1.0
+    forced_t = 2.0
     latest_file = os.path.join(load_dir, f"model_checkpoint_t{forced_t}.pth")
     max_t = forced_t
     reprise_active = False
