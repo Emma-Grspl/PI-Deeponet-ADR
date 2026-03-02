@@ -287,139 +287,130 @@ def get_t_failed(model, cfg, threshold=0.04):
     print("✅ Le modèle semble robuste partout, fallback de t_failed à 1.5s")
     return 1.5
 
-def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr, target_threshold=None, apply_80_20=False):
+def targeted_correction(model, bounds, t_max, initial_failed_ids, n_iters_base, start_lr, target_threshold=None, apply_80_20=False):
     """
-    Launches an intensive training phase on the types of ICs that failed the audit.Uses biased sampling (oversampling of difficult types) and a hybrid optimizer (Adam + L-BFGS) to correct specific errors detected by the diagnostic.
+    Launches an intensive training phase with dynamic Active Learning.
+    Evaluates failure points every 1000 iterations and adjusts batch composition and Learning Rate dynamically.
 
     Args:
         model(nn.Module): Model to correct.
         bounds(dict): Physical ranges.
         t_max(float): Current time.
-        failed_ids(list): IDs of the failing IC types.
-        n_iters_base(int): Number of iterations.
+        initial_failed_ids(list): Initial IDs of failing IC types.
+        n_iters_base(int): Total number of macro iterations (e.g., 30000).
         start_lr(float): Initial learning rate.
         target_threshold(float, optional): Specific success threshold.
-        apply_80_20(bool): Activer l'échantillonnage temporel 80% échec / 20% succès.
+        apply_80_20(bool): Activer l'échantillonnage temporel biaisé (désormais 65/35).
     Outputs:
         bool: True if the correction successfully validated all types.
     """
-    print(f"Targeted correction on {failed_ids}")
+    print(f"🚀 Démarrage du Dynamic Soft Polishing...")
     device = next(model.parameters()).device
     king_corr = KingOfTheHill(model)
-    
     save_dir = cfg['audit']['save_dir'] 
-    best_val_err = float('inf')
     
-    all_types = [0, 1, 2, 3, 4]
-    weighted_types = []
-    for tid in all_types:
-        if tid in failed_ids: weighted_types.extend([tid] * 4) 
-        else: weighted_types.extend([tid] * 1) 
-
     w_bc_loc = cfg['loss_weights']['weight_bc']
     if t_max == 0.0: 
         w_res_loc, w_ic_loc = 0.0, 100.0
     else: 
-        w_res_loc = cfg['loss_weights']['first_w_res'] # Sera mis à jour par le NTK
+        w_res_loc = cfg['loss_weights']['first_w_res'] 
         w_ic_loc = cfg['loss_weights']['weight_ic_final']
 
+    # Configuration du scheduler de LR (de start_lr à 1e-6 sur n_iters_base)
+    end_lr = 1e-6
+    gamma = (end_lr / start_lr) ** (1 / (n_iters_base / 1000)) if start_lr > end_lr else 1.0
     current_lr = start_lr
-    correction_success = False
-
-    # Evaluation du t_failed si option 80/20 active
+    
+    opt = optim.Adam(model.parameters(), lr=current_lr)
+    
+    # État initial
+    current_failed_ids = initial_failed_ids
+    best_val_err = float('inf')
+    
     t_failed = None
     if apply_80_20 and target_threshold is not None:
         t_failed = get_t_failed(model, cfg, threshold=target_threshold)
 
-    for macro in range(cfg['training']['nb_loop']):
-        print(f" Macro {macro+1}/{cfg['training']['nb_loop']}")
-        for retry in range(cfg['training']['max_retry']):
-            model.load_state_dict(king_corr.best_state)
-            opt = optim.Adam(model.parameters(), lr=current_lr)
-            
-            pbar = tqdm(range(n_iters_base), desc=f"   Corr-Try {retry+1}", leave=False)
-            for i in pbar:
-                batch = generate_mixed_batch(cfg['training']['n_sample'], bounds, 
-                                             cfg['geometry']['x_min'], cfg['geometry']['x_max'], 
-                                             t_max, allowed_types=weighted_types)
-                params, xt, xt_ic, u_true_ic, xt_bc_l, xt_bc_r, u_true_bc_l, u_true_bc_r = batch
-                
-                # --- NOUVEAU : Application du Split Temporel 80/20 ---
-                if apply_80_20 and t_failed is not None and t_max > t_failed:
-                    n_samples = xt.shape[0]
-                    n_fail = int(0.8 * n_samples)
-                    n_pass = n_samples - n_fail
-                    
-                    t_pass = torch.rand(n_pass, 1) * t_failed
-                    t_fail = torch.rand(n_fail, 1) * (t_max - t_failed) + t_failed
-                    
-                    new_t = torch.cat([t_pass, t_fail], dim=0)
-                    new_t = new_t[torch.randperm(n_samples)].to(device)
-                    
-                    # Remplacement sécurisé pour l'Autograd
-                    xt_new = xt.clone().detach()
-                    xt_new[:, 1:2] = new_t
-                    xt_new.requires_grad_(True)
-                    xt = xt_new
-                    batch = (params, xt, xt_ic, u_true_ic, xt_bc_l, xt_bc_r, u_true_bc_l, u_true_bc_r)
-                else:
-                    if not xt.requires_grad: xt.requires_grad_(True)
-                # -----------------------------------------------------
-
-                opt.zero_grad()
-                loss = get_loss(model, batch, w_res_loc, w_ic_loc, w_bc_loc) 
-                loss.backward()
-                opt.step()
-                king_corr.update(model, loss.item())
-                if i % 500 == 0: pbar.set_postfix({"Loss": f"{loss.item():.2e}"})
-
-            _, val_err = audit_global_fast(model, t_max)
-            if val_err < best_val_err:
-                best_val_err = val_err
-                torch.save(model.state_dict(), f"{save_dir}/model_best_validation.pth")
-                print(f" New global record : {val_err:.2%} ! (Saved in model_best_validation.pth)")
-
-            failed_now = diagnose_model(model, device, cfg, threshold=target_threshold, t_max=t_max)
-            if len(failed_now) == 0:
-                print("Success correction.")
-                correction_success = True
-                break
-            current_lr *= 0.5 
-            
-        if correction_success: break
-        
-        if king_corr.best_loss < 1e-2:
-            print("L-BFGS Finisher (Correction)")
-            model.load_state_dict(king_corr.best_state)
-            lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=500, line_search_fn="strong_wolfe")
-            def closure():
-                lbfgs.zero_grad()
-                b = generate_mixed_batch(cfg['training']['n_sample'], bounds, cfg['geometry']['x_min'], cfg['geometry']['x_max'], t_max, allowed_types=weighted_types)
-                p, xt_bfgs, xic, uic, bc_l, bc_r, ubc_l, ubc_r = b
-                if not xt_bfgs.requires_grad: xt_bfgs.requires_grad_(True)
-                b_safe = (p, xt_bfgs, xic, uic, bc_l, bc_r, ubc_l, ubc_r)
-                loss = get_loss(model, b_safe, w_res_loc, w_ic_loc, w_bc_loc)
-                loss.backward()
-                return loss
-            try: lbfgs.step(closure)
-            except: pass
-            
-            _, val_err = audit_global_fast(model, t_max)
-            if val_err < best_val_err:
-                best_val_err = val_err
-                torch.save(model.state_dict(), f"{save_dir}/model_best_validation.pth")
-                print(f"New global record: {val_err:.2%} ! (Saved in model_best_validation.pth)")
-
-            failed_now = diagnose_model(model, device, cfg, threshold=target_threshold, t_max=t_max)
-            if len(failed_now) == 0:
-                print("Success correction (LBFGS).")
-                correction_success = True
-                break
+    pbar = tqdm(range(n_iters_base), desc="Soft Polishing", leave=True)
     
-    if not correction_success:
-        print("Correction failure")
-        return False
-    return True
+    for i in pbar:
+        # --- 1. Ajustement dynamique du batch (toutes les 1000 itérations) ---
+        if i % 1000 == 0:
+            if i > 0:
+                # Audit pour voir l'état actuel
+                current_failed_ids = diagnose_model(model, device, cfg, threshold=target_threshold, t_max=t_max, silent=True)
+                
+                # Mise à jour du LR
+                current_lr = max(end_lr, current_lr * gamma)
+                for param_group in opt.param_groups:
+                    param_group['lr'] = current_lr
+                
+                # Check d'arrêt anticipé : si plus aucune IC ne décroche, on a gagné !
+                if len(current_failed_ids) == 0:
+                    print(f"\n✅ Objectif atteint à l'itération {i}! Toutes les IC sont sous le seuil.")
+                    return True
+
+            # Construction des poids du batch en fonction de current_failed_ids
+            all_types = [0, 1, 2, 3, 4]
+            weighted_types = []
+            for tid in all_types:
+                if tid in current_failed_ids:
+                    weighted_types.extend([tid] * 2) # Force douce (x2 au lieu de x4)
+                else:
+                    weighted_types.extend([tid] * 1)
+            
+            pbar.set_description(f"Polishing | LR: {current_lr:.1e} | Fails: {current_failed_ids}")
+
+        # --- 2. Génération du batch ---
+        batch = generate_mixed_batch(cfg['training']['n_sample'], bounds, 
+                                     cfg['geometry']['x_min'], cfg['geometry']['x_max'], 
+                                     t_max, allowed_types=weighted_types)
+        params, xt, xt_ic, u_true_ic, xt_bc_l, xt_bc_r, u_true_bc_l, u_true_bc_r = batch
+        
+        # --- 3. Split Temporel 65/35 ---
+        if apply_80_20 and t_failed is not None and t_max > t_failed:
+            n_samples = xt.shape[0]
+            n_fail = int(0.65 * n_samples) # 65% sur la zone difficile
+            n_pass = n_samples - n_fail    # 35% sur le passé
+            
+            t_pass = torch.rand(n_pass, 1) * t_failed
+            t_fail = torch.rand(n_fail, 1) * (t_max - t_failed) + t_failed
+            
+            new_t = torch.cat([t_pass, t_fail], dim=0)
+            new_t = new_t[torch.randperm(n_samples)].to(device)
+            
+            xt_new = xt.clone().detach()
+            xt_new[:, 1:2] = new_t
+            xt_new.requires_grad_(True)
+            xt = xt_new
+            batch = (params, xt, xt_ic, u_true_ic, xt_bc_l, xt_bc_r, u_true_bc_l, u_true_bc_r)
+        else:
+            if not xt.requires_grad: xt.requires_grad_(True)
+
+        # Activation NTK périodique pour éviter l'explosion
+        if t_max > 0.0 and i % 100 == 0:
+            w_res_loc = compute_ntk_weights(model, batch, w_ic_loc)
+
+        # --- 4. Optimisation ---
+        opt.zero_grad()
+        loss = get_loss(model, batch, w_res_loc, w_ic_loc, w_bc_loc) 
+        loss.backward()
+        opt.step()
+        
+        if king_corr.update(model, loss.item()):
+            # Sauvegarde silencieuse en fond du meilleur modèle pure-loss
+            pass
+            
+        if i % 100 == 0:
+            pbar.set_postfix({"Loss": f"{loss.item():.2e}"})
+
+    # À la fin de la boucle de 30 000 itérations
+    print("\nFin de la boucle de Polishing.")
+    model.load_state_dict(king_corr.best_state)
+    torch.save(model.state_dict(), f"{save_dir}/model_best_validation.pth")
+    
+    final_fails = diagnose_model(model, device, cfg, threshold=target_threshold, t_max=t_max)
+    return len(final_fails) == 0
 
 def train_step_time_window(model, bounds, t_max, n_iters_main):
     """
@@ -541,14 +532,14 @@ def train_smart_time_marching(model, bounds):
     device = next(model.parameters()).device
     
     # FORCAGE : On pointe directement sur le dossier du supercalculateur pour forcer la reprise
-    load_dir = "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/results/run_20260224-145625"
+    load_dir = "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/results/run_20260227-153846/model_latest_t3.0.pth"
     
     # Writing folder
     save_dir = cfg['audit']['save_dir'] 
     os.makedirs(save_dir, exist_ok=True)
     
-    # Reprise forcée au temps 1.0
-    forced_t = 2.0
+    # Reprise forcée au temps 3.0
+    forced_t = 3.0
     latest_file = os.path.join(load_dir, f"model_checkpoint_t{forced_t}.pth")
     max_t = forced_t
     reprise_active = False
@@ -631,17 +622,17 @@ def train_smart_time_marching(model, bounds):
 
     if len(failed_ids) > 0:
         print(f"IC above {target_strict:.1%} : {failed_ids}")
-        print(f"Launching specific training WITH 80/20 TIME BIASED SAMPLING")
+        print(f"Launching specific training WITH 65/35 DYNAMIC SAMPLING")
 
         success_polish = targeted_correction(
             model, 
             bounds, 
             t_max=final_t, 
-            failed_ids=failed_ids, 
-            n_iters_base=15000,   
+            initial_failed_ids=failed_ids, 
+            n_iters_base=30000,   
             start_lr=1e-5,        
             target_threshold=target_strict,
-            apply_80_20=True # <--- Activation du batch biaisé !
+            apply_80_20=True 
         )
 
         if success_polish:
