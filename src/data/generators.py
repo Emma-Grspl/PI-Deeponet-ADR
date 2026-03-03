@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 
-# --- 1. IC Generation Utils ---
 def get_ic_value(x, ic_kind, ic_params):
     """
     Generates the initial condition (IC) values for a given spatial domain. Allows dynamic switching between different mathematical forms (Tanh, Wavelet, Gaussian) used to initialize the system at t=0. The function is data type agnostic (compatible with PyTorch Tensor and NumPy Array).
