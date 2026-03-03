@@ -23,7 +23,7 @@ The architecture is designed to handle steep gradients and long-term temporal de
 * Activation: SiLU (Swish) for smooth second-order derivatives in the PDE residual.
 * Capacity: 256 latent dimensions with deep residual-like connections (5 layers for Branch, 4 for Trunk).
 
-## 🚀 Advanced Training Strategy
+## Advanced Training Strategy
 
 To reach a target error $< 3\%$ over a long time horizon ($t_{max} = 3.0$), we implemented several state-of-the-art strategies:
 
@@ -33,7 +33,7 @@ To reach a target error $< 3\%$ over a long time horizon ($t_{max} = 3.0$), we i
 4. NTK Gradient Balancing: Adaptive weighting of loss components using the Neural Tangent Kernel (NTK) to resolve gradient pathologies between the PDE residual and Boundary Conditions.
 5. King of the Hill: A robust rollback mechanism that monitors global L2 error and restores the best performing state, preventing divergence.
 
-## 📊 Performance Analysis
+## Performance Analysis
 
 The model is benchmarked against a Crank-Nicolson (CN) finite difference solver. The Mean L2 Relative Error is calculated over 1000 random physical configurations for each type of IC.
 
@@ -72,7 +72,7 @@ To run a complete training:
 python scripts/train.py
 
 ```
-## 🛠️ Repository Structure
+## Repository Structure
 
 * `assets/`: Main results.
 * `configs/`: YAML files for hyperparameter management.
