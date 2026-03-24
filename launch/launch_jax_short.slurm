@@ -23,6 +23,10 @@ echo "Job on $SLURMD_NODENAME"
 date
 nvidia-smi
 
+python -c "import jax; print('jax_devices=', jax.devices())"
+python -c "import jax; print('jax_backend=', jax.default_backend())"
+python -c "import jaxlib; print('jaxlib_version=', jaxlib.__version__)"
+
 # If your JAX environment lives in a dedicated virtualenv on Jean Zay,
 # uncomment and adapt the next line instead of relying only on the module.
 # source /path/to/your/jax-env/bin/activate
