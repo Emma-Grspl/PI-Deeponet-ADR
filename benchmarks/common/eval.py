@@ -2,8 +2,27 @@ import time
 
 import numpy as np
 
-from src.data.generators import get_ic_value
 from src.utils.CN_ADR import crank_nicolson_adr
+
+
+def get_ic_value_numpy(x, ic_params):
+    x = np.asarray(x)
+    types = ic_params.get("type")
+    A = ic_params.get("A", 1.0)
+    x0 = ic_params.get("x0", 0.0)
+    sigma = ic_params.get("sigma", 0.5)
+    k = ic_params.get("k", 2.0)
+
+    u0 = np.zeros_like(x, dtype=float)
+
+    if types == 0:
+        u0 += np.tanh((x - x0) / (sigma + 1e-8))
+    elif types in [1, 2]:
+        u0 += A * np.exp(-((x - x0) ** 2) / (2 * sigma**2 + 1e-8)) * np.sin(k * x)
+    elif types in [3, 4]:
+        u0 += A * np.exp(-((x - x0) ** 2) / (2 * sigma**2 + 1e-8))
+
+    return u0
 
 
 def _predict_grid_common(cfg, params_dict, t_max, nx, nt):
@@ -34,7 +53,7 @@ def compute_cn_solution(cfg, params_dict, t_max, nx, nt):
     x_min = cfg["geometry"]["x_min"]
     x_max = cfg["geometry"]["x_max"]
     x = np.linspace(x_min, x_max, nx)
-    u0 = get_ic_value(x, "mixed", params_dict)
+    u0 = get_ic_value_numpy(x, params_dict)
     bc_kind = "zero_zero" if params_dict["type"] in [1, 3, 2, 4] else "tanh_pm1"
     _, u_cn, _ = crank_nicolson_adr(
         v=params_dict["v"],
