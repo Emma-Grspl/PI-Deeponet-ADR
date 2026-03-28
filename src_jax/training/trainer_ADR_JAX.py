@@ -12,7 +12,7 @@ import optax
 import yaml
 
 from benchmarks.common.eval import compute_cn_solution
-from src_jax.data.generators import generate_mixed_batch
+from src_jax.data.generators import generate_mixed_batch, get_ic_value
 from src_jax.models.pi_deeponet_adr import apply_model
 from src_jax.training.step import get_ic_loss, get_loss, make_ic_train_step, make_train_step
 
@@ -131,6 +131,37 @@ def _predict_grid(params, params_dict: Dict, t_max: float, nx: int, nt: int, cfg
     return np.asarray(jax.device_get(pred)).reshape(nx, nt)
 
 
+def _predict_ic(params, params_dict: Dict, x: np.ndarray) -> np.ndarray:
+    xt = np.stack([x, np.zeros_like(x)], axis=1).astype(np.float32)
+    p_vec = np.array(
+        [
+            params_dict["v"],
+            params_dict["D"],
+            params_dict["mu"],
+            params_dict["type"],
+            params_dict["A"],
+            0.0,
+            params_dict["sigma"],
+            params_dict["k"],
+        ],
+        dtype=np.float32,
+    )
+    p_batch = np.repeat(p_vec[None, :], xt.shape[0], axis=0)
+    pred = apply_model(params, jnp.asarray(p_batch), jnp.asarray(xt))
+    return np.asarray(jax.device_get(pred)).reshape(-1)
+
+
+def _true_ic(params_dict: Dict, x: np.ndarray) -> np.ndarray:
+    ic_params = {
+        "type": jnp.asarray(params_dict["type"], dtype=jnp.float32),
+        "A": jnp.asarray(params_dict["A"], dtype=jnp.float32),
+        "x0": jnp.asarray(params_dict.get("x0", 0.0), dtype=jnp.float32),
+        "sigma": jnp.asarray(params_dict["sigma"], dtype=jnp.float32),
+        "k": jnp.asarray(params_dict["k"], dtype=jnp.float32),
+    }
+    return np.asarray(get_ic_value(jnp.asarray(x, dtype=jnp.float32), ic_params)).reshape(-1)
+
+
 def audit_global_fast(params, cfg: Dict, t_max: float) -> Tuple[bool, float]:
     rng = np.random.default_rng(42)
     errors = []
@@ -147,8 +178,13 @@ def audit_global_fast(params, cfg: Dict, t_max: float) -> Tuple[bool, float]:
         p_dict = {k: rng.uniform(v[0], v[1]) for k, v in cfg["physics_ranges"].items()}
         p_dict["type"] = int(rng.integers(0, 5))
         try:
-            u_true = compute_cn_solution(cfg, p_dict, t_max, nx, nt)
-            u_pred = _predict_grid(params, p_dict, t_max, nx, nt, cfg)
+            if t_max == 0.0:
+                x = np.linspace(cfg["geometry"]["x_min"], cfg["geometry"]["x_max"], nx)
+                u_true = _true_ic(p_dict, x)
+                u_pred = _predict_ic(params, p_dict, x)
+            else:
+                u_true = compute_cn_solution(cfg, p_dict, t_max, nx, nt)
+                u_pred = _predict_grid(params, p_dict, t_max, nx, nt, cfg)
             err = np.linalg.norm(u_true - u_pred) / (np.linalg.norm(u_true) + 1e-8)
             errors.append(float(err))
         except Exception:
@@ -183,8 +219,13 @@ def diagnose_model(params, cfg: Dict, threshold: float | None = None, t_max: flo
             p_dict = {k: rng.uniform(v[0], v[1]) for k, v in cfg["physics_ranges"].items()}
             p_dict["type"] = int(rng.choice(type_ids))
             try:
-                u_true = compute_cn_solution(cfg, p_dict, t_max, nx, nt)
-                u_pred = _predict_grid(params, p_dict, t_max, nx, nt, cfg)
+                if t_max == 0.0:
+                    x = np.linspace(cfg["geometry"]["x_min"], cfg["geometry"]["x_max"], nx)
+                    u_true = _true_ic(p_dict, x)
+                    u_pred = _predict_ic(params, p_dict, x)
+                else:
+                    u_true = compute_cn_solution(cfg, p_dict, t_max, nx, nt)
+                    u_pred = _predict_grid(params, p_dict, t_max, nx, nt, cfg)
                 err = np.linalg.norm(u_true - u_pred) / (np.linalg.norm(u_true) + 1e-8)
                 errors.append(float(err))
             except Exception:
