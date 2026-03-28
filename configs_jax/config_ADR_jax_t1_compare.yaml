@@ -55,6 +55,7 @@ training:
   threshold_ic: 0.02
   threshold_step: 0.05
   warmup_batch_size: 512
+  warmup_audit_every: 1000
   warmup_holdout_every: 1000
   warmup_holdout_n: 2048
   warmup_learning_rate: 0.0002

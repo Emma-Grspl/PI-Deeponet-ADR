@@ -203,6 +203,11 @@ def _audit_ic_case(params, params_dict: Dict, x: np.ndarray) -> float:
     return float(np.linalg.norm(u_true - u_pred) / (np.linalg.norm(u_true) + 1e-8))
 
 
+def _balanced_warmup_types() -> List[int]:
+    # 1/3 Tanh, 1/3 Sin-Gauss, 1/3 Gaussian at the family level.
+    return [0, 0, 1, 2, 3, 4]
+
+
 def audit_global_fast(params, cfg: Dict, t_max: float) -> Tuple[bool, float]:
     rng = np.random.default_rng(42)
     errors = []
@@ -483,11 +488,15 @@ def train_smart_time_marching(params, cfg: Dict, bounds: Dict):
         warmup_batch_size = cfg["training"].get("warmup_batch_size", cfg["training"]["batch_size"])
         holdout_every = cfg["training"].get("warmup_holdout_every", 1000)
         holdout_batch_size = cfg["training"].get("warmup_holdout_n", 2048)
+        warmup_audit_every = cfg["training"].get("warmup_audit_every", 1000)
+        warmup_allowed_types = cfg["training"].get("warmup_allowed_types", _balanced_warmup_types())
 
         optimizer = optax.adam(warmup_lr)
         opt_state = optimizer.init(params)
         train_step = make_ic_train_step(optimizer)
         king = KingOfTheHill(params)
+        best_warmup_params = clone_params(params)
+        best_warmup_err = float("inf")
         key = jax.random.PRNGKey(11)
         holdout_key = jax.random.PRNGKey(111)
         for i in range(n_warmup):
@@ -499,6 +508,7 @@ def train_smart_time_marching(params, cfg: Dict, bounds: Dict):
                 cfg["geometry"]["x_min"],
                 cfg["geometry"]["x_max"],
                 0.0,
+                allowed_types=warmup_allowed_types,
             )
             params, opt_state, loss = train_step(params, opt_state, batch)
             loss_value = float(jax.device_get(loss))
@@ -513,8 +523,19 @@ def train_smart_time_marching(params, cfg: Dict, bounds: Dict):
                         i + 1, held_mse, held_rel_l2
                     )
                 )
+            if warmup_audit_every > 0 and (i + 1) % warmup_audit_every == 0:
+                _, warmup_err = audit_global_fast(params, cfg, 0.0)
+                if warmup_err < best_warmup_err:
+                    best_warmup_err = warmup_err
+                    best_warmup_params = clone_params(params)
+                    print("[Warmup Audit] New best strict IC audit: {0:.2%}".format(best_warmup_err))
 
-        params = clone_params(king.best_state)
+        if best_warmup_err < float("inf"):
+            params = clone_params(best_warmup_params)
+            print("Warmup best checkpoint selected from strict audit: {0:.2%}".format(best_warmup_err))
+        else:
+            params = clone_params(king.best_state)
+
         audit_global_fast(params, cfg, 0.0)
         failed_warmup = diagnose_model(params, cfg, t_max=0.0)
         if failed_warmup:
