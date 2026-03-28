@@ -208,9 +208,25 @@ def _balanced_warmup_types() -> List[int]:
     return [0, 0, 1, 2, 3, 4]
 
 
+def _allowed_types(cfg: Dict) -> List[int]:
+    return list(cfg.get("training", {}).get("allowed_types", [0, 1, 2, 3, 4]))
+
+
+def _allowed_family_map(cfg: Dict) -> Dict[str, List[int]]:
+    base = {"Gaussian": [3, 4], "Sin-Gauss": [1, 2], "Tanh": [0]}
+    allowed = set(_allowed_types(cfg))
+    filtered = {}
+    for name, type_ids in base.items():
+        keep = [tid for tid in type_ids if tid in allowed]
+        if keep:
+            filtered[name] = keep
+    return filtered
+
+
 def audit_global_fast(params, cfg: Dict, t_max: float) -> Tuple[bool, float]:
     rng = np.random.default_rng(42)
     errors = []
+    allowed_types = _allowed_types(cfg)
     if t_max == 0.0:
         target_threshold = cfg["training"].get("threshold_ic", cfg["training"].get("threshold", 0.01))
         mode_str = "IC (Strict)"
@@ -222,7 +238,7 @@ def audit_global_fast(params, cfg: Dict, t_max: float) -> Tuple[bool, float]:
     nt = cfg["audit"]["Nt_audit"]
     for _ in range(cfg["audit"].get("n_global_cases", 40)):
         p_dict = {k: rng.uniform(v[0], v[1]) for k, v in cfg["physics_ranges"].items()}
-        p_dict["type"] = int(rng.integers(0, 5))
+        p_dict["type"] = int(rng.choice(allowed_types))
         try:
             if t_max == 0.0:
                 x = np.linspace(cfg["geometry"]["x_min"], cfg["geometry"]["x_max"], nx)
@@ -252,7 +268,7 @@ def diagnose_model(params, cfg: Dict, threshold: float | None = None, t_max: flo
             threshold = cfg["training"].get("threshold_step", cfg["training"].get("threshold", 0.05))
 
     rng = np.random.default_rng(123)
-    families_map = {"Gaussian": [3, 4], "Sin-Gauss": [1, 2], "Tanh": [0]}
+    families_map = _allowed_family_map(cfg)
     failed_ids = []
     nx = cfg["audit"]["Nx_audit"]
     nt = cfg["audit"]["Nt_audit"]
@@ -289,13 +305,16 @@ def get_t_failed(params, cfg: Dict, threshold: float = 0.04) -> float:
     print("Recherche du point de bascule temporel (t_failed)...")
     t_evals = [0.0, 0.5, 1.0]
     rng = np.random.default_rng(7)
+    allowed_types = [tid for tid in _allowed_types(cfg) if tid in [0, 1, 3]]
+    if not allowed_types:
+        allowed_types = _allowed_types(cfg)
     nx = cfg["audit"]["Nx_audit"]
     nt = cfg["audit"]["Nt_audit"]
     for t_val in t_evals:
         errors = []
         for _ in range(10):
             p_dict = {k: rng.uniform(v[0], v[1]) for k, v in cfg["physics_ranges"].items()}
-            p_dict["type"] = int(rng.choice([0, 1, 3]))
+            p_dict["type"] = int(rng.choice(allowed_types))
             try:
                 u_true = compute_cn_solution(cfg, p_dict, t_val, nx, nt)
                 u_pred = _predict_grid(params, p_dict, t_val, nx, nt, cfg)
@@ -333,6 +352,8 @@ def targeted_correction(params, cfg: Dict, bounds: Dict, t_max: float, initial_f
     optimizer = optax.adam(current_lr)
     opt_state = optimizer.init(params)
     train_step = make_train_step(optimizer)
+    all_types = _allowed_types(cfg)
+    weighted_types = list(all_types)
 
     for i in range(n_iters_base):
         if i % 1000 == 0:
@@ -346,7 +367,6 @@ def targeted_correction(params, cfg: Dict, bounds: Dict, t_max: float, initial_f
                     print("Objectif atteint a l'iteration {0}".format(i))
                     return params, True
 
-            all_types = [0, 1, 2, 3, 4]
             weighted_types = []
             for tid in all_types:
                 weighted_types.extend([tid] * (2 if tid in current_failed_ids else 1))
@@ -410,6 +430,7 @@ def train_step_time_window(params, cfg: Dict, bounds: Dict, t_max: float, n_iter
     current_lr = cfg["training"]["learning_rate"]
     global_success = False
     key = jax.random.PRNGKey(int(t_max * 1000) + 17)
+    allowed_types = _allowed_types(cfg)
 
     for macro in range(cfg["training"]["nb_loop"]):
         print("Macro {0}/{1}".format(macro + 1, cfg["training"]["nb_loop"]))
@@ -429,6 +450,7 @@ def train_step_time_window(params, cfg: Dict, bounds: Dict, t_max: float, n_iter
                     cfg["geometry"]["x_min"],
                     cfg["geometry"]["x_max"],
                     t_max,
+                    allowed_types=allowed_types,
                 )
                 if mode == "NTK" and i % 100 == 0:
                     w_res = compute_ntk_weights(params, batch, w_ic)
@@ -489,7 +511,7 @@ def train_smart_time_marching(params, cfg: Dict, bounds: Dict):
         holdout_every = cfg["training"].get("warmup_holdout_every", 0)
         holdout_batch_size = cfg["training"].get("warmup_holdout_n", 2048)
         warmup_audit_every = cfg["training"].get("warmup_audit_every", 0)
-        warmup_allowed_types = cfg["training"].get("warmup_allowed_types")
+        warmup_allowed_types = cfg["training"].get("warmup_allowed_types", _allowed_types(cfg))
 
         optimizer = optax.adam(warmup_lr)
         opt_state = optimizer.init(params)

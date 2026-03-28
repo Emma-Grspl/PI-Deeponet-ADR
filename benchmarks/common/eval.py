@@ -108,10 +108,11 @@ def benchmark_inference(cfg, benchmark_cfg, build_inputs_fn, predict_fn, sync_fn
     t_max = benchmark_cfg["training"]["t_max"]
 
     rng = np.random.default_rng(benchmark_cfg["seed"])
+    allowed_types = benchmark_cfg["inference"].get("allowed_types", [0, 1, 3])
     scenarios = []
     for _ in range(batch_size):
         p_dict = {k: rng.uniform(v[0], v[1]) for k, v in cfg["physics_ranges"].items()}
-        p_dict["type"] = int(rng.choice([0, 1, 3]))
+        p_dict["type"] = int(rng.choice(allowed_types))
         scenarios.append(p_dict)
 
     inference_inputs = build_inputs_fn(scenarios, t_max, nx, nt, full_grid=True)

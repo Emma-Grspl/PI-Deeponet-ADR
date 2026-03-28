@@ -52,6 +52,10 @@ def load_config(path="configs/config_ADR.yaml"):
 
 cfg = load_config()
 
+
+def get_allowed_types():
+    return list(cfg.get('training', {}).get('allowed_types', [0, 1, 2, 3, 4]))
+
 def generate_time_steps():
     """
     Generates the list of time steps for training. Implements the time stepping defined in the configuration for Time Marching, allowing the model to learn the solution over increasingly longer windows.
@@ -222,6 +226,7 @@ the set accuracy thresholds (threshold_ic or threshold_step) before proceeding t
     model.eval()
     np.random.seed(42) 
     errors = []
+    allowed_types = get_allowed_types()
     
     if t_max == 0.0:
         target_threshold = cfg['training'].get('threshold_ic', cfg['training'].get('threshold', 0.01))
@@ -232,7 +237,7 @@ the set accuracy thresholds (threshold_ic or threshold_step) before proceeding t
 
     for _ in range(200):
         p_dict = {k: np.random.uniform(v[0], v[1]) for k, v in cfg['physics_ranges'].items()}
-        p_dict['type'] = np.random.randint(0, 5)
+        p_dict['type'] = int(np.random.choice(allowed_types))
         try:
             X_grid, T_grid, U_true = get_ground_truth_CN(p_dict, cfg, t_step_max=t_max)
             x_flat, t_flat = X_grid.flatten(), T_grid.flatten()
@@ -266,7 +271,7 @@ def get_t_failed(model, cfg, threshold=0.04):
         errors = []
         for _ in range(15):
             p_dict = {k: np.random.uniform(v[0], v[1]) for k, v in cfg['physics_ranges'].items()}
-            p_dict['type'] = np.random.choice([0, 1, 3])
+            p_dict['type'] = int(np.random.choice(allowed_types))
             try:
                 X_grid, T_grid, U_true = get_ground_truth_CN(p_dict, cfg, t_step_max=t_val)
                 x_flat, t_flat = X_grid.flatten(), T_grid.flatten()
@@ -326,6 +331,7 @@ def targeted_correction(model, bounds, t_max, initial_failed_ids, n_iters_base, 
     # État initial
     current_failed_ids = initial_failed_ids
     best_val_err = float('inf')
+    allowed_types = get_allowed_types()
     
     t_failed = None
     if apply_80_20 and target_threshold is not None:
@@ -351,7 +357,7 @@ def targeted_correction(model, bounds, t_max, initial_failed_ids, n_iters_base, 
                     return True
 
             # Construction des poids du batch en fonction de current_failed_ids
-            all_types = [0, 1, 2, 3, 4]
+            all_types = allowed_types
             weighted_types = []
             for tid in all_types:
                 if tid in current_failed_ids:
@@ -442,6 +448,7 @@ Executes the training over a given time window. Manages the PDE weight ramp init
     print(f"Level t={t_max} | Mode: {mode}")
     current_lr = cfg['training']['learning_rate']
     global_success = False
+    allowed_types = get_allowed_types()
 
     for macro in range(cfg['training']['nb_loop']):
         print(f"Lacro {macro+1}/{cfg['training']['nb_loop']}")
@@ -451,7 +458,8 @@ Executes the training over a given time window. Manages the PDE weight ramp init
             optimizer = optim.Adam(model.parameters(), lr=current_lr)
             for i in range(n_iters_main):
                 batch = generate_mixed_batch(cfg['training']['n_sample'], bounds, 
-                                             cfg['geometry']['x_min'], cfg['geometry']['x_max'], t_max)
+                                             cfg['geometry']['x_min'], cfg['geometry']['x_max'], t_max,
+                                             allowed_types=allowed_types)
                 params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
                 if not xt.requires_grad: xt.requires_grad_(True)
                 if mode == "NTK" and i % 100 == 0: w_res = compute_ntk_weights(model, batch, w_ic)
@@ -479,7 +487,7 @@ Executes the training over a given time window. Manages the PDE weight ramp init
         lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=500, line_search_fn="strong_wolfe")
         def closure():
             lbfgs.zero_grad()
-            b = generate_mixed_batch(cfg['training']['n_sample'], bounds, cfg['geometry']['x_min'], cfg['geometry']['x_max'], t_max)
+            b = generate_mixed_batch(cfg['training']['n_sample'], bounds, cfg['geometry']['x_min'], cfg['geometry']['x_max'], t_max, allowed_types=allowed_types)
             p, xt_bfgs, xic, uic, bc_l, bc_r, ubc_l, ubc_r = b
             if not xt_bfgs.requires_grad: xt_bfgs.requires_grad_(True)
             b_safe = (p, xt_bfgs, xic, uic, bc_l, bc_r, ubc_l, ubc_r)
@@ -568,9 +576,11 @@ def train_smart_time_marching(model, bounds):
             optimizer = optim.Adam(model.parameters(), lr=cfg['training']['learning_rate'])
             king = KingOfTheHill(model)
             model.train()
+            allowed_types = get_allowed_types()
+            warmup_allowed_types = cfg['training'].get('warmup_allowed_types', allowed_types)
             for i in range(n_warmup):
                 optimizer.zero_grad()
-                batch = generate_mixed_batch(cfg['training']['batch_size'], bounds, cfg['geometry']['x_min'], cfg['geometry']['x_max'], 0.0)
+                batch = generate_mixed_batch(cfg['training']['batch_size'], bounds, cfg['geometry']['x_min'], cfg['geometry']['x_max'], 0.0, allowed_types=warmup_allowed_types)
                 params, _, xt_ic, u_true_ic, _, _, _, _ = batch
                 loss = torch.mean((model(params, xt_ic) - u_true_ic)**2)
                 loss.backward()
@@ -649,3 +659,6 @@ def train_smart_time_marching(model, bounds):
         print("Everything under 2%")
 
     return model
+    allowed_types = [tid for tid in get_allowed_types() if tid in [0, 1, 3]]
+    if not allowed_types:
+        allowed_types = get_allowed_types()

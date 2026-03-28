@@ -42,6 +42,12 @@ def diagnose_model(model, device, cfg, threshold=None, t_max=None):
         "Sin-Gauss": [1, 2], 
         "Tanh": [0]
     }
+    allowed_types = set(cfg.get('training', {}).get('allowed_types', [0, 1, 2, 3, 4]))
+    families_map = {
+        fam_name: [tid for tid in type_ids if tid in allowed_types]
+        for fam_name, type_ids in families_map.items()
+    }
+    families_map = {fam_name: type_ids for fam_name, type_ids in families_map.items() if type_ids}
     
     failed_ids = []
     
