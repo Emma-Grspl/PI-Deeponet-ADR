@@ -162,6 +162,22 @@ def _true_ic(params_dict: Dict, x: np.ndarray) -> np.ndarray:
     return np.asarray(get_ic_value(jnp.asarray(x, dtype=jnp.float32), ic_params)).reshape(-1)
 
 
+def _true_ic_np(x: np.ndarray, params_dict: Dict) -> np.ndarray:
+    type_id = int(params_dict["type"])
+    amplitude = float(params_dict["A"])
+    x0 = float(params_dict.get("x0", 0.0))
+    sigma = float(params_dict["sigma"])
+    k_val = float(params_dict["k"])
+
+    tanh_part = np.tanh((x - x0) / (sigma + 1e-8))
+    gauss_env = np.exp(-((x - x0) ** 2) / (2.0 * sigma**2 + 1e-8))
+    if type_id == 0:
+        return tanh_part
+    if type_id in (1, 2):
+        return amplitude * gauss_env * np.sin(k_val * x)
+    return amplitude * gauss_env
+
+
 def _ic_holdout_metrics(params, cfg: Dict, bounds: Dict, batch_size: int, key) -> Tuple[float, float]:
     batch = generate_mixed_batch(
         key,
@@ -179,6 +195,12 @@ def _ic_holdout_metrics(params, cfg: Dict, bounds: Dict, batch_size: int, key) -
         / (np.linalg.norm(np.asarray(jax.device_get(u_true_ic))) + 1e-8)
     )
     return held_mse, rel_l2
+
+
+def _audit_ic_case(params, params_dict: Dict, x: np.ndarray) -> float:
+    u_true = _true_ic_np(x, params_dict)
+    u_pred = _predict_ic(params, params_dict, x)
+    return float(np.linalg.norm(u_true - u_pred) / (np.linalg.norm(u_true) + 1e-8))
 
 
 def audit_global_fast(params, cfg: Dict, t_max: float) -> Tuple[bool, float]:
@@ -199,12 +221,11 @@ def audit_global_fast(params, cfg: Dict, t_max: float) -> Tuple[bool, float]:
         try:
             if t_max == 0.0:
                 x = np.linspace(cfg["geometry"]["x_min"], cfg["geometry"]["x_max"], nx)
-                u_true = _true_ic(p_dict, x)
-                u_pred = _predict_ic(params, p_dict, x)
+                err = _audit_ic_case(params, p_dict, x)
             else:
                 u_true = compute_cn_solution(cfg, p_dict, t_max, nx, nt)
                 u_pred = _predict_grid(params, p_dict, t_max, nx, nt, cfg)
-            err = np.linalg.norm(u_true - u_pred) / (np.linalg.norm(u_true) + 1e-8)
+                err = np.linalg.norm(u_true - u_pred) / (np.linalg.norm(u_true) + 1e-8)
             errors.append(float(err))
         except Exception:
             continue
@@ -240,12 +261,11 @@ def diagnose_model(params, cfg: Dict, threshold: float | None = None, t_max: flo
             try:
                 if t_max == 0.0:
                     x = np.linspace(cfg["geometry"]["x_min"], cfg["geometry"]["x_max"], nx)
-                    u_true = _true_ic(p_dict, x)
-                    u_pred = _predict_ic(params, p_dict, x)
+                    err = _audit_ic_case(params, p_dict, x)
                 else:
                     u_true = compute_cn_solution(cfg, p_dict, t_max, nx, nt)
                     u_pred = _predict_grid(params, p_dict, t_max, nx, nt, cfg)
-                err = np.linalg.norm(u_true - u_pred) / (np.linalg.norm(u_true) + 1e-8)
+                    err = np.linalg.norm(u_true - u_pred) / (np.linalg.norm(u_true) + 1e-8)
                 errors.append(float(err))
             except Exception:
                 continue
