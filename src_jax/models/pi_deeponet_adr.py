@@ -83,7 +83,7 @@ def init_model_params(key, cfg: Dict) -> Dict:
             "sigma_scale": jnp.array(max(abs(p_cfg["sigma"][0]), abs(p_cfg["sigma"][1])), dtype=jnp.float32),
             "k_scale": jnp.array(max(abs(p_cfg["k"][0]), abs(p_cfg["k"][1])), dtype=jnp.float32),
         },
-        "use_ic_ansatz": bool(m_cfg.get("use_ic_ansatz", False)),
+        "use_ic_ansatz": jnp.array(1.0 if m_cfg.get("use_ic_ansatz", False) else 0.0, dtype=jnp.float32),
     }
 
 
@@ -120,7 +120,7 @@ def apply_model(params: dict, inputs_params: jnp.ndarray, xt: jnp.ndarray) -> jn
         u_val, v_val = jnp.split(uv, 2, axis=1)
         z_val = jax.nn.silu((1.0 - z_trunk) * u_val + z_trunk * v_val)
     raw_out = linear(params["final_layer"], z_val)
-    if not params.get("use_ic_ansatz", False):
+    if float(params.get("use_ic_ansatz", jnp.array(0.0, dtype=jnp.float32))) < 0.5:
         return raw_out
 
     x = xt[:, 0:1]
