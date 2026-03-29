@@ -48,7 +48,7 @@ def load_pickle(path: str):
 
 
 def clone_params(params):
-    return jax.tree_util.tree_map(lambda x: x.copy(), params)
+    return jax.tree_util.tree_map(lambda x: x.copy() if hasattr(x, "copy") else x, params)
 
 
 def tree_l2_norm(tree) -> jnp.ndarray:
