@@ -54,7 +54,7 @@ def main():
 
     print("Production training")
     final_cfg['training']['n_warmup'] = 7000          
-    final_cfg['training']['n_iters_per_step'] = 6000  s
+    final_cfg['training']['n_iters_per_step'] = 6000
     final_cfg['training']['n_iters_correction'] = 8000
     final_cfg['training']['nb_loop'] = 3              
     final_cfg['training']['threshold'] = 0.02

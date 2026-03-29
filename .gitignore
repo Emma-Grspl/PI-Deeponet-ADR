@@ -7,8 +7,11 @@ env/
 
 # Dossiers de résultats (Très important)
 outputs/
+results/
 *.pth
 *.pt
+optuna_study.db
+.pytest_cache/
 
 # Fichiers Python compilés
 __pycache__/

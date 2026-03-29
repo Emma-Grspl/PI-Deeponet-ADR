@@ -44,16 +44,19 @@ Representative outputs are now organized by workflow:
 
 ## Repository Structure
 
-- `configs/`: YAML configuration for geometry, optimization, and physical ranges.
-- `scripts/`: entry points for training and Optuna-based tuning.
-- `src/models/`: PI-DeepONet architecture.
-- `src/physics/`: PDE residual computation with autograd.
-- `src/training/`: training loop, curriculum logic, auditing, and polishing.
-- `src/utils/`: Crank-Nicolson solver, metrics, and Optuna helpers.
-- `src/analyse/`: benchmarking and figure-generation scripts.
-- `test/`: numerical and physics-consistency tests.
-- `assets/`: empty root-level placeholder for future showcase selection.
-- `models_saved/`: pretrained checkpoints.
+Primary navigation entry points:
+
+- `base/`: canonical PyTorch ADR training pipeline, Optuna workflow, saved model, and base analyses.
+- `jax_comparison/multifamily/`: strict JAX vs Pytorch comparison on the main three-family task.
+- `jax_comparison/monofamily/`: exploratory mono-family and focused-family framework comparisons.
+- `plot/`: central figure gallery organized by workflow.
+- `assets/`: empty root-level placeholder for the final showcase selection.
+
+Legacy runtime folders:
+
+- `src/`, `src_jax/`, `configs/`, `configs_jax/`, `scripts/`, `scripts_jax/`, `launch/`, `benchmarks/`, `test/`
+- these remain in place because some benchmark scripts still import them directly
+- they are now compatibility infrastructure, not the recommended way to browse the repository
 
 ## Quick Start
 
