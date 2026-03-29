@@ -3,6 +3,7 @@
 Exploratory PyTorch vs JAX comparison on mono-family ADR experiments.
 
 Contents:
+- `assets_monofamily/`: curated assets for mono-family comparison experiments.
 - `src/pytorch/`: PyTorch-side benchmark training dependencies used for monofamily runs.
 - `src/jax/`: JAX implementation used in monofamily runs.
 - `scripts/`: benchmark launch scripts for training, evaluation, and inference.

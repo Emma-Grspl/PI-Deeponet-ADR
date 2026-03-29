@@ -24,7 +24,7 @@ from src.utils.CN_ADR import crank_nicolson_adr
 from src_jax.models.pi_deeponet_adr import apply_model
 
 
-ASSET_DIR = PROJECT_ROOT / "assets_jax"
+ASSET_DIR = PROJECT_ROOT / "jax_comparison" / "multifamily" / "assets_multifamily"
 BENCH_ROOTS = [PROJECT_ROOT / "benchmarks", PROJECT_ROOT / "outputs" / "benchmarks"]
 PT_COLOR = "deepskyblue"
 JAX_COLOR = "deeppink"

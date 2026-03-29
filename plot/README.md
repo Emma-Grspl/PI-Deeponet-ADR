@@ -21,3 +21,8 @@ Color code:
 - `JAX`: `deeppink`
 - `CN`: `black`
 - snapshot times: `RdPu`
+
+Related asset hubs:
+- `base/assets_pytorch/`
+- `jax_comparison/multifamily/assets_multifamily/`
+- `jax_comparison/monofamily/assets_monofamily/`
