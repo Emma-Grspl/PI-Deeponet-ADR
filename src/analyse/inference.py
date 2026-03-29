@@ -100,8 +100,8 @@ def plot_speedup(total_cn, total_don, batch_size, out_dir):
     print(f"Speedup                    : x{speedup:.1f}")
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    labels = [f'Crank-Nicolson\n(Requires full time-stepping)', f'PI-DeepONet\n(Direct "Time-Jumping")']
-    bars = ax.bar(labels, [total_cn, total_don], color=['#380282', '#E0249A'], alpha=0.85, edgecolor='black', width=0.6)
+    labels = [f'CN\n(Requires full time-stepping)', f'PyTorch\n(Direct "Time-Jumping")']
+    bars = ax.bar(labels, [total_cn, total_don], color=['black', 'deepskyblue'], alpha=0.85, edgecolor='black', width=0.6)
     
     for bar in bars:
         ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + (max([total_cn, total_don])*0.02), 
@@ -109,10 +109,10 @@ def plot_speedup(total_cn, total_don, batch_size, out_dir):
         
     ax.text(1, total_cn * 0.5, f'x{speedup:.0f}\nFASTER', ha='center', va='center', 
             fontsize=16, fontweight='bold', color='white', 
-            bbox=dict(facecolor='#27AE60', edgecolor='black', boxstyle='circle,pad=0.3', alpha=0.9))
+            bbox=dict(facecolor='deeppink', edgecolor='black', boxstyle='circle,pad=0.3', alpha=0.9))
 
     ax.set_ylabel(f'Time to predict final state for {batch_size} scenarios (s)', fontsize=12)
-    ax.set_title(f'The DeepONet Advantage: Time-Jumping to Target State', fontsize=14, fontweight='bold')
+    ax.set_title(f'PyTorch Time-Jumping vs CN', fontsize=14, fontweight='bold')
     ax.grid(axis='y', linestyle='--', alpha=0.6)
     
     plt.tight_layout()

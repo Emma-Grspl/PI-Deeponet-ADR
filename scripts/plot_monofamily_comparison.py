@@ -26,6 +26,9 @@ from src_jax.models.pi_deeponet_adr import apply_model
 ASSET_DIR = PROJECT_ROOT / "assets_monofamille"
 BENCH_ROOT = PROJECT_ROOT / "benchmarks"
 SEED = "seed_0"
+PT_COLOR = "deepskyblue"
+JAX_COLOR = "deeppink"
+CN_COLOR = "black"
 
 FAMILY_META = {
     "Tanh": {
@@ -140,7 +143,7 @@ def plot_family_l2(bundle: dict) -> None:
     families = list(FAMILY_META.keys())
     x = np.arange(len(families))
     width = 0.36
-    colors = {"pytorch": "#d1495b", "jax": "#00798c"}
+    colors = {"pytorch": PT_COLOR, "jax": JAX_COLOR}
 
     fig, ax = plt.subplots(figsize=(10.5, 6))
     for backend, offset in [("pytorch", -width / 2), ("jax", width / 2)]:
@@ -167,7 +170,7 @@ def plot_family_l2(bundle: dict) -> None:
                 fontweight="bold",
             )
 
-    ax.axhline(0.05, color="#222222", linestyle="--", linewidth=1.2, label="5% threshold")
+    ax.axhline(0.05, color=CN_COLOR, linestyle="--", linewidth=1.2, label="5% threshold")
     ax.set_yscale("log")
     ax.set_ylim(1e-3, 2e1)
     ax.set_xticks(x, families)
@@ -181,7 +184,7 @@ def plot_training_time(bundle: dict) -> None:
     families = list(FAMILY_META.keys())
     x = np.arange(len(families))
     width = 0.36
-    colors = {"pytorch": "#d1495b", "jax": "#00798c"}
+    colors = {"pytorch": PT_COLOR, "jax": JAX_COLOR}
 
     fig, ax = plt.subplots(figsize=(10.5, 6))
     pt_vals = [bundle[family]["pytorch"]["train"]["total_time_sec"] / 60.0 for family in families]
@@ -210,7 +213,7 @@ def plot_inference(bundle: dict) -> None:
     families = list(FAMILY_META.keys())
     x = np.arange(len(families))
     width = 0.24
-    colors = {"pytorch": "#d1495b", "jax": "#00798c", "cn": "#2f2f2f"}
+    colors = {"pytorch": PT_COLOR, "jax": JAX_COLOR, "cn": CN_COLOR}
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.6), constrained_layout=True)
     for ax, key, title in [
@@ -233,7 +236,7 @@ def plot_inference(bundle: dict) -> None:
 
 
 def plot_frontier(bundle: dict) -> None:
-    colors = {"pytorch": "#d1495b", "jax": "#00798c"}
+    colors = {"pytorch": PT_COLOR, "jax": JAX_COLOR}
     markers = {"Tanh": "o", "Sin-Gauss": "s", "Gaussian": "D"}
 
     fig, ax = plt.subplots(figsize=(9.5, 6))
@@ -259,15 +262,15 @@ def plot_frontier(bundle: dict) -> None:
                 fontsize=9,
             )
 
-    ax.axhline(0.05, color="#222222", linestyle="--", linewidth=1.3, label="5% threshold")
+    ax.axhline(0.05, color=CN_COLOR, linestyle="--", linewidth=1.3, label="5% threshold")
     ax.set_yscale("log")
     ax.set_xlabel("Training time (hours)")
     ax.set_ylabel("Relative L2 error")
     ax.set_title("Monofamily Quality vs Training Time")
     legend_items = [
-        Line2D([0], [0], marker="o", color="w", markerfacecolor="#d1495b", markeredgecolor="#1f1f1f", markersize=10, label="PyTorch"),
-        Line2D([0], [0], marker="o", color="w", markerfacecolor="#00798c", markeredgecolor="#1f1f1f", markersize=10, label="JAX"),
-        Line2D([0], [0], color="#222222", linestyle="--", label="5% threshold"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=PT_COLOR, markeredgecolor="#1f1f1f", markersize=10, label="PyTorch"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=JAX_COLOR, markeredgecolor="#1f1f1f", markersize=10, label="JAX"),
+        Line2D([0], [0], color=CN_COLOR, linestyle="--", label="5% threshold"),
     ]
     ax.legend(handles=legend_items, frameon=True)
     savefig(fig, "4_monofamily_frontier.png")
@@ -332,9 +335,9 @@ def compute_cn_grid(physics: dict, cfg: dict, x: np.ndarray, t: np.ndarray) -> n
 
 def plot_snapshots(bundle: dict) -> None:
     models = load_models()
-    time_colors = ["#f6d0b1", "#f0a06b", "#d1495b", "#8f2d56", "#5e1742"]
     t = np.linspace(0.0, 1.0, 200)
     t_indices = [0, len(t) // 8, len(t) // 4, len(t) // 2, -1]
+    time_colors = plt.cm.RdPu(np.linspace(0.35, 0.95, len(t_indices)))
 
     fig, axes = plt.subplots(3, 1, figsize=(12.5, 13.4), sharex=True)
     model_styles = {
@@ -365,9 +368,9 @@ def plot_snapshots(bundle: dict) -> None:
 
     axes[-1].set_xlabel("Space x")
     model_handles = [
-        Line2D([0], [0], color="#2b251f", linestyle="--", linewidth=2.6, label="CN"),
-        Line2D([0], [0], color="#2b251f", linestyle="-", linewidth=1.9, label="PyTorch"),
-        Line2D([0], [0], color="#2b251f", linestyle=":", linewidth=2.1, label="JAX"),
+        Line2D([0], [0], color=CN_COLOR, linestyle="--", linewidth=2.6, label="CN"),
+        Line2D([0], [0], color=PT_COLOR, linestyle="-", linewidth=1.9, label="PyTorch"),
+        Line2D([0], [0], color=JAX_COLOR, linestyle=":", linewidth=2.1, label="JAX"),
     ]
     time_handles = [
         Line2D([0], [0], color=color, linestyle="-", linewidth=3.0, label=f"t = {t[t_idx]:.2f}")

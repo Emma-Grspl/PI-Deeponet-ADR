@@ -64,8 +64,10 @@ def generate_solution(mode, model, physics, geom, ic_type, device='cpu'):
 def analyse_results(mode="CN", model=None, device='cpu'):
     if mode == "CN":
         out_dir = "outputs/classical_solver"
+        curve_color = "black"
     else:
         out_dir = "outputs/PI_DeepOnet_analyse/plot"
+        curve_color = "deepskyblue"
     os.makedirs(out_dir, exist_ok=True)
 
     geom = {'x_min': -5.0, 'x_max': 8.0, 'T_max': 3.0, 'Nx': 400, 'Nt': 200}
@@ -127,7 +129,7 @@ def analyse_results(mode="CN", model=None, device='cpu'):
         ax.set_title(f"Animation : {ic.capitalize()}", fontsize=12)
         ax.grid(True, alpha=0.2)
         # Ligne fuchsia pour l'animation
-        line, = ax.plot([], [], lw=2.5, color='fuchsia')
+        line, = ax.plot([], [], lw=2.5, color=curve_color)
         lines.append(line)
 
     def update(frame):

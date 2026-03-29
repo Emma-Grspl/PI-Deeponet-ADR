@@ -138,8 +138,8 @@ def generate_5_plots(x, t, results_dict, title_prefix, out_dir, types_names):
     axes[-1].set_xlabel("Space (x)")
     from matplotlib.lines import Line2D
     style_handles = [
-        Line2D([0], [0], color='k', linestyle='--', lw=2.2, label='Crank-Nicolson'),
-        Line2D([0], [0], color='k', linestyle='-', lw=2.0, label='DeepONet'),
+        Line2D([0], [0], color='black', linestyle='--', lw=2.2, label='CN'),
+        Line2D([0], [0], color='deepskyblue', linestyle='-', lw=2.0, label='PyTorch'),
     ]
     time_handles = [
         Line2D([0], [0], color=cm.RdPu(np.linspace(0.4, 0.9, len(t_indices)))[i], linestyle='-', lw=3, label=f"t={t[t_idx]:.2f}s")
@@ -156,8 +156,8 @@ def generate_5_plots(x, t, results_dict, title_prefix, out_dir, types_names):
     lines = []
     for idx, tid in enumerate(target_types):
         ax = axes[idx]
-        l1, = ax.plot([], [], 'k--', label='Crank-Nicolson')
-        l2, = ax.plot([], [], color='fuchsia', label='DeepONet', lw=2)
+        l1, = ax.plot([], [], 'k--', label='CN')
+        l2, = ax.plot([], [], color='deepskyblue', label='PyTorch', lw=2)
         ax.set_ylim(-1.5, 1.5)
         ax.set_xlim(x[0], x[-1])
         ax.set_title(types_names[tid])

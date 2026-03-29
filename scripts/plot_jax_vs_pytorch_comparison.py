@@ -26,6 +26,9 @@ from src_jax.models.pi_deeponet_adr import apply_model
 
 ASSET_DIR = PROJECT_ROOT / "assets_jax"
 BENCH_ROOTS = [PROJECT_ROOT / "benchmarks", PROJECT_ROOT / "outputs" / "benchmarks"]
+PT_COLOR = "deepskyblue"
+JAX_COLOR = "deeppink"
+CN_COLOR = "black"
 
 JAX_NAME = "benchmark_fulltrainer_t1_equal"
 PT_NAME = "benchmark_fulltrainer_t1"
@@ -124,7 +127,7 @@ def plot_family_l2(bundle: dict) -> None:
     fams = family_order()
     x = np.arange(len(fams))
     width = 0.34
-    colors = {"pytorch": "#d1495b", "jax": "#00798c"}
+    colors = {"pytorch": PT_COLOR, "jax": JAX_COLOR}
 
     for idx, backend in enumerate(["pytorch", "jax"]):
         means = [bundle[backend]["eval"]["family_l2_mean"][fam] for fam in fams]
@@ -152,7 +155,7 @@ def plot_family_l2(bundle: dict) -> None:
                 rotation=0,
             )
 
-    ax.axhline(0.05, color="#222222", linestyle="--", linewidth=1.3, label="5% threshold")
+    ax.axhline(0.05, color=CN_COLOR, linestyle="--", linewidth=1.3, label="5% threshold")
     ax.set_xticks(x, fams)
     ax.set_ylabel("Relative L2 error")
     ax.set_title("Family-wise L2 Error")
@@ -164,7 +167,7 @@ def plot_family_l2(bundle: dict) -> None:
 
 def plot_final_l2_vs_training_time(bundle: dict) -> None:
     fig, ax = plt.subplots(figsize=(9.5, 6))
-    colors = {"pytorch": "#d1495b", "jax": "#00798c"}
+    colors = {"pytorch": PT_COLOR, "jax": JAX_COLOR}
     markers = {"Global": "X", "Tanh": "o", "Sin-Gauss": "s", "Gaussian": "D"}
 
     for backend in ["pytorch", "jax"]:
@@ -190,15 +193,15 @@ def plot_final_l2_vs_training_time(bundle: dict) -> None:
                 fontsize=9,
             )
 
-    ax.axhline(0.05, color="#222222", linestyle="--", linewidth=1.3)
+    ax.axhline(0.05, color=CN_COLOR, linestyle="--", linewidth=1.3)
     ax.set_yscale("log")
     ax.set_xlabel("Training time (hours)")
     ax.set_ylabel("Final relative L2 error")
     ax.set_title("Final L2 Error vs Training Time")
     legend_items = [
-        Line2D([0], [0], marker="o", color="w", markerfacecolor="#d1495b", markeredgecolor="#1f1f1f", markersize=10, label="PyTorch"),
-        Line2D([0], [0], marker="o", color="w", markerfacecolor="#00798c", markeredgecolor="#1f1f1f", markersize=10, label="JAX"),
-        Line2D([0], [0], color="#222222", linestyle="--", label="5% threshold"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=PT_COLOR, markeredgecolor="#1f1f1f", markersize=10, label="PyTorch"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=JAX_COLOR, markeredgecolor="#1f1f1f", markersize=10, label="JAX"),
+        Line2D([0], [0], color=CN_COLOR, linestyle="--", label="5% threshold"),
     ]
     ax.legend(handles=legend_items, frameon=True)
     savefig(fig, "2_final_l2_vs_training_time.png")
@@ -208,7 +211,7 @@ def plot_training_time_hist(bundle: dict) -> None:
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
     labels = ["PyTorch", "JAX"]
     values = [bundle["pytorch"]["train"]["total_time_sec"] / 60.0, bundle["jax"]["train"]["total_time_sec"] / 60.0]
-    colors = ["#d1495b", "#00798c"]
+    colors = [PT_COLOR, JAX_COLOR]
     bars = ax.bar(labels, values, color=colors, alpha=0.9)
     for bar, value in zip(bars, values):
         ax.text(bar.get_x() + bar.get_width() / 2, value, f"{value:.1f} min", ha="center", va="bottom", fontweight="bold")
@@ -219,7 +222,7 @@ def plot_training_time_hist(bundle: dict) -> None:
 
 def plot_inference(bundle: dict) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12, 5.2), constrained_layout=True)
-    colors = {"PyTorch": "#d1495b", "JAX": "#00798c", "CN": "#2f2f2f"}
+    colors = {"PyTorch": PT_COLOR, "JAX": JAX_COLOR, "CN": CN_COLOR}
 
     full_vals = [
         bundle["pytorch"]["infer"]["inference_full_grid_sec"],
@@ -248,7 +251,7 @@ def plot_inference(bundle: dict) -> None:
 
 def plot_threshold_frontier(bundle: dict) -> None:
     fig, ax = plt.subplots(figsize=(9.5, 6))
-    colors = {"pytorch": "#d1495b", "jax": "#00798c"}
+    colors = {"pytorch": PT_COLOR, "jax": JAX_COLOR}
 
     for backend in ["pytorch", "jax"]:
         x = bundle[backend]["train"]["total_time_sec"] / 3600.0
@@ -263,7 +266,7 @@ def plot_threshold_frontier(bundle: dict) -> None:
             fontweight="bold",
         )
 
-    ax.axhline(0.05, color="#222222", linestyle="--", linewidth=1.4, label="5% threshold")
+    ax.axhline(0.05, color=CN_COLOR, linestyle="--", linewidth=1.4, label="5% threshold")
     ax.set_yscale("log")
     ax.set_xlabel("Training time (hours)")
     ax.set_ylabel("Global L2 error")
@@ -336,7 +339,7 @@ def plot_snapshots() -> None:
     x = np.linspace(cfg_pt["geometry"]["x_min"], cfg_pt["geometry"]["x_max"], 400)
     t = np.linspace(0.0, 1.0, 200)
     t_indices = [0, len(t) // 8, len(t) // 4, len(t) // 2, -1]
-    time_colors = ["#f6d0b1", "#f0a06b", "#d1495b", "#8f2d56", "#5e1742"]
+    time_colors = plt.cm.RdPu(np.linspace(0.35, 0.95, len(t_indices)))
 
     cases = [
         ("Tanh", {"type": 0, "v": 0.8, "D": 0.1, "mu": 0.5, "A": 1.0, "sigma": 0.5, "k": 2.0}),
@@ -368,9 +371,9 @@ def plot_snapshots() -> None:
 
     axes[-1].set_xlabel("Space x")
     model_handles = [
-        Line2D([0], [0], color="#2b251f", linestyle="--", linewidth=2.6, label="CN"),
-        Line2D([0], [0], color="#2b251f", linestyle="-", linewidth=1.9, label="PyTorch"),
-        Line2D([0], [0], color="#2b251f", linestyle=":", linewidth=2.1, label="JAX"),
+        Line2D([0], [0], color=CN_COLOR, linestyle="--", linewidth=2.6, label="CN"),
+        Line2D([0], [0], color=PT_COLOR, linestyle="-", linewidth=1.9, label="PyTorch"),
+        Line2D([0], [0], color=JAX_COLOR, linestyle=":", linewidth=2.1, label="JAX"),
     ]
     time_handles = [
         Line2D([0], [0], color=color, linestyle="-", linewidth=3.0, label=f"t = {t[t_idx]:.2f}")
