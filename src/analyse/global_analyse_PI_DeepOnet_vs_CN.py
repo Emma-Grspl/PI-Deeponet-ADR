@@ -124,7 +124,7 @@ def generate_5_plots(x, t, results_dict, title_prefix, out_dir, types_names):
 
     # 4. Snapshots
     t_indices = [0, len(t)//4, len(t)//2, -1]
-    fig, axes = plt.subplots(3, 1, figsize=(10, 13.5), sharex=True)
+    fig, axes = plt.subplots(3, 1, figsize=(10.5, 12.8), sharex=True)
     for idx, tid in enumerate(target_types):
         ax = axes[idx]
         u_ref, u_pred = results_dict[tid]['last_u_ref'], results_dict[tid]['last_u_pred']
@@ -145,9 +145,9 @@ def generate_5_plots(x, t, results_dict, title_prefix, out_dir, types_names):
         Line2D([0], [0], color=cm.RdPu(np.linspace(0.4, 0.9, len(t_indices)))[i], linestyle='-', lw=3, label=f"t={t[t_idx]:.2f}s")
         for i, t_idx in enumerate(t_indices)
     ]
-    fig.subplots_adjust(bottom=0.16, hspace=0.28)
-    fig.legend(handles=style_handles, loc='lower center', ncol=2, frameon=True, bbox_to_anchor=(0.5, 0.06), title="Line style")
-    fig.legend(handles=time_handles, loc='lower center', ncol=4, frameon=True, bbox_to_anchor=(0.5, 0.01), title="Snapshot times")
+    fig.subplots_adjust(top=0.93, right=0.80, hspace=0.28)
+    fig.legend(handles=style_handles, loc='upper right', frameon=True, bbox_to_anchor=(0.985, 0.955), title="Line style")
+    fig.legend(handles=time_handles, loc='upper right', frameon=True, bbox_to_anchor=(0.985, 0.80), title="Snapshot times")
     plt.savefig(f"{out_dir}/4_Snapshots.png", dpi=300)
     plt.close()
 
