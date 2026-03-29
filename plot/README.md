@@ -1,0 +1,23 @@
+# Plot Hub
+
+Centralized plot directory for the repository.
+
+Subfolders:
+- `Pytorch/`
+  - `assets/`: selected PyTorch showcase plots
+  - `DeepONet_vs_CN/`: detailed PyTorch vs classical-solver comparison plots
+  - `Inference_Time/`: PyTorch inference timing figures
+- `PI_DeepOnet_Base_Analyse/`
+  - base PyTorch analysis outputs
+- `Classical_Solver/`
+  - classical solver visual outputs
+- `Jax_Vs_Pytorch_Comparison/Multifamily/`
+  - main strict multi-family PyTorch vs JAX comparison figures
+- `Jax_Vs_Pytorch_Comparison/Monofamily/`
+  - exploratory mono-family comparison figures
+
+Color code:
+- `PyTorch`: `deepskyblue`
+- `JAX`: `deeppink`
+- `CN`: `black`
+- snapshot times: `RdPu`
