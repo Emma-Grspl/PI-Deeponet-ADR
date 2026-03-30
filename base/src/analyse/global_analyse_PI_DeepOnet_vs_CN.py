@@ -212,7 +212,7 @@ def run_analysis(model, cfg, device):
     generate_5_plots(x, t, res_cn, "DeepONet vs CN", out_dir, types_names)
 
 if __name__ == "__main__":
-    MODEL_PATH = "models_saved/model_best_validation.pth"
+    MODEL_PATH = "models_saved/PI-DeepOnet.pth"
     device = torch.device("mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu"))
     
     cfg = load_config()

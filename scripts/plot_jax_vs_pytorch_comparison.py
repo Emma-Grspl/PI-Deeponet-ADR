@@ -25,7 +25,11 @@ from src_jax.models.pi_deeponet_adr import apply_model
 
 
 ASSET_DIR = PROJECT_ROOT / "jax_comparison" / "multifamily" / "assets_multifamily"
-BENCH_ROOTS = [PROJECT_ROOT / "benchmarks", PROJECT_ROOT / "outputs" / "benchmarks"]
+BENCH_ROOTS = [
+    PROJECT_ROOT / "jax_comparison" / "multifamily" / "results",
+    PROJECT_ROOT / "benchmarks",
+    PROJECT_ROOT / "outputs" / "benchmarks",
+]
 PT_COLOR = "deepskyblue"
 JAX_COLOR = "deeppink"
 CN_COLOR = "black"

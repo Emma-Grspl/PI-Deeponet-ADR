@@ -52,9 +52,14 @@ Primary navigation entry points:
 - `plot/`: central figure gallery organized by workflow.
 - `assets/`: empty root-level placeholder for the final showcase selection.
 
+Result folders:
+
+- `jax_comparison/multifamily/results/`: finalized multi-family benchmark runs used for the framework comparison.
+- `jax_comparison/monofamily/results/`: finalized mono-family and ansatz benchmark runs used for the diagnostic comparisons.
+
 Legacy runtime folders:
 
-- `src/`, `src_jax/`, `configs/`, `configs_jax/`, `scripts/`, `scripts_jax/`, `launch/`, `benchmarks/`, `test/`
+- `src/`, `src_jax/`, `configs/`, `configs_jax/`, `scripts/`, `launch/`, `benchmarks/`, `test/`
 - these remain in place because some benchmark scripts still import them directly
 - they are now compatibility infrastructure, not the recommended way to browse the repository
 

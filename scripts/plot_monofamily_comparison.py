@@ -24,7 +24,10 @@ from src_jax.models.pi_deeponet_adr import apply_model
 
 
 ASSET_DIR = PROJECT_ROOT / "jax_comparison" / "monofamily" / "assets_monofamily"
-BENCH_ROOT = PROJECT_ROOT / "benchmarks"
+BENCH_ROOTS = [
+    PROJECT_ROOT / "jax_comparison" / "monofamily" / "results",
+    PROJECT_ROOT / "benchmarks",
+]
 SEED = "seed_0"
 PT_COLOR = "deepskyblue"
 JAX_COLOR = "deeppink"
@@ -86,10 +89,11 @@ def load_jax_pickle_compat(path: Path):
 
 
 def resolve_run_dir(backend: str, suffix: str) -> Path:
-    path = BENCH_ROOT / backend / f"benchmark_fulltrainer_t1_{suffix}" / SEED
-    if not path.exists():
-        raise FileNotFoundError(path)
-    return path
+    for root in BENCH_ROOTS:
+        path = root / backend / f"benchmark_fulltrainer_t1_{suffix}" / SEED
+        if path.exists():
+            return path
+    raise FileNotFoundError(f"Missing run for {backend}/benchmark_fulltrainer_t1_{suffix}")
 
 
 def load_bundle() -> dict:

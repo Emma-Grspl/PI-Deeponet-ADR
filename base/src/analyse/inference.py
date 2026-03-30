@@ -167,7 +167,7 @@ def plot_speedup(total_cn, total_don, batch_size, out_dir, title, filename, mode
     plt.savefig(f"{out_dir}/{filename}", dpi=300)
 
 if __name__ == "__main__":
-    MODEL_PATH = os.path.join(project_root, "models_saved", "model_best_validation.pth")
+    MODEL_PATH = os.path.join(project_root, "models_saved", "PI-DeepOnet.pth")
     out_dir = os.path.join(project_root, "outputs", "PI_DeepOnet_analyse", "Inference_Time")
     device = torch.device("mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu"))
     

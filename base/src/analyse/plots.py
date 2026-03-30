@@ -168,7 +168,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     model = PI_DeepONet_ADR(cfg).to(device)
-    model_path = os.path.join(project_root, "models_saved", "model_best_validation.pth")
+    model_path = os.path.join(project_root, "models_saved", "PI-DeepOnet.pth")
     
     if os.path.exists(model_path):
         print(f"Loading weights : {model_path}")
