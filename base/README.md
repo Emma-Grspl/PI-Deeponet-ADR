@@ -1,17 +1,66 @@
-# Base
+# Base PyTorch ADR Pipeline
 
-Canonical PyTorch ADR implementation used as the foundation of the repository.
+`base/` is the canonical implementation of the project.
 
-Contents:
-- `assets_pytorch/`: curated PyTorch-only assets kept near the base workflow.
-- `src/`: main PyTorch solver, data generation, physics, training, and analysis code.
-- `scripts/`: base training and tuning entry points.
-- `configs/`: canonical PyTorch configs.
-- `launch/`: generic SLURM launchers for the base workflow.
-- `tests/`: reference tests for the classical solver and PDE residual.
-- `plots/`: organized plot hub copies for PyTorch-only outputs and classical-solver plots.
-- `models_saved/`: saved PyTorch checkpoint used by the base analysis.
+If you want the stable ADR solver without the framework-comparison overhead, start here.
 
-Notes:
-- This subtree is the reference implementation for the ADR operator-learning workflow.
-- JAX benchmark and comparison material lives under `jax_comparison/`.
+## Scope
+
+This subtree contains the reference PyTorch workflow for:
+
+- data generation for the parametric ADR problem
+- PI-DeepONet model definition
+- PDE residual computation
+- time-marching training
+- classical Crank-Nicolson comparison
+- baseline analysis plots and saved checkpoints
+
+## Directory Layout
+
+- `src/`: main PyTorch codebase for models, data, physics, training, and utilities
+- `scripts/`: training and tuning entry points
+- `configs/`: canonical PyTorch configs
+- `launch/`: generic SLURM launchers for the base workflow
+- `tests/`: regression and numerical sanity checks
+- `models_saved/`: reference saved model artifacts
+- `plots/`: copied base-only plots and figure outputs
+- `assets_pytorch/`: selected assets for base-only presentation
+
+## Environment
+
+Recommended installation:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+`requirements.txt` is intentionally the base PyTorch environment. It should remain usable without JAX.
+
+## What Belongs Here
+
+Belongs in `base/`:
+
+- improvements to the canonical PyTorch model
+- fixes to the classical solver or ADR residual
+- changes to the stable training pipeline
+- analyses that support the reference ADR study
+
+Does not belong here:
+
+- JAX-only code
+- benchmark harness used only for framework comparison
+- framework-comparison-only launchers
+- mono-family comparison diagnostics that exist only to compare backends
+
+Those belong under [jax_comparison/](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison).
+
+## Branching Guidance
+
+The intended long-term git mapping is:
+
+- `base` branch: contents of this subtree as the stable project
+- `jax-comparison` branch: adds JAX and comparison material on top of it
+
+If a change would still be valuable after deleting all JAX-related folders, it probably belongs to `base`.

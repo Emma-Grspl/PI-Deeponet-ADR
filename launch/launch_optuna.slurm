@@ -1,4 +1,5 @@
 #!/bin/bash
+# Compatibility wrapper around the canonical PyTorch Optuna launcher in base/.
 #SBATCH --job-name=ADR_Optuna     
 #SBATCH --output=slurm/log/%x_%j.out
 #SBATCH --error=slurm/log/%x_%j.err
@@ -19,4 +20,4 @@ mkdir -p slurm/log
 echo "Job on $SLURMD_NODENAME"
 nvidia-smi
 
-srun python scripts/tune_optuna.py
+srun python base/scripts/tune_optuna.py

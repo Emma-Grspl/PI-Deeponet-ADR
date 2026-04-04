@@ -1,4 +1,5 @@
 #!/bin/bash
+# Compatibility wrapper around the canonical PyTorch launcher in base/.
 #SBATCH --job-name=ADR     
 #SBATCH --output=slurm/log/%x_%j.out
 #SBATCH --error=slurm/log/%x_%j.err
@@ -19,4 +20,4 @@ mkdir -p slurm/log
 echo "Job on $SLURMD_NODENAME"
 nvidia-smi
 
-srun python scripts/train.py
+srun python base/scripts/train.py
