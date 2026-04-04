@@ -70,6 +70,46 @@ Jean Zay example:
 - [jax_comparison/monofamily/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison/monofamily/README.md): mono-family diagnostics and ablations
 - [experiments/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/experiments/README.md): target organization for configs and launchers
 
+## Key Results Snapshot
+
+### Base PyTorch ADR result
+
+The canonical PyTorch pipeline is the stable scientific baseline of the repository:
+
+- accurate operator learning on the ADR task
+- usable surrogate quality
+- substantial inference speedup relative to the classical Crank-Nicolson solver
+
+### Strict multifamily PyTorch vs JAX comparison
+
+On the full three-family task, PyTorch is the reliable framework in this repository.
+
+Interpretation:
+
+- JAX is faster in raw training time
+- PyTorch is decisively better in final solution quality under the matched pipeline
+
+### Gaussian hypothesis ablation
+
+The Gaussian-family `ansatz` / `LBFGS` 2x2x2 ablation is now complete for both frameworks.
+
+Final global relative L2 means:
+
+- PyTorch free / no LBFGS: `0.8239 +- 0.0611`
+- PyTorch free / LBFGS: `0.8658 +- 0.0745`
+- PyTorch ansatz / no LBFGS: `0.1606 +- 0.0841`
+- PyTorch ansatz / LBFGS: `0.2114 +- 0.1335`
+- JAX free / no LBFGS: `1.0065 +- 0.0060`
+- JAX free / LBFGS: `1.0065 +- 0.0059`
+- JAX ansatz / no LBFGS: `0.4814 +- 0.0056`
+- JAX ansatz / LBFGS: `0.4802 +- 0.0056`
+
+Takeaway:
+
+- the `ansatz` is the dominant factor for both frameworks
+- `LBFGS` does not materially help on this Gaussian ablation
+- JAX is faster, but PyTorch remains clearly more accurate on the final error
+
 ## What Is Stable vs Experimental
 
 Stable:
