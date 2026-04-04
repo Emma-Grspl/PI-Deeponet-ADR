@@ -15,6 +15,12 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EXPERIMENT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ROOT_DIR="$(cd "${EXPERIMENT_DIR}/../../.." && pwd)"
+
+cd "${ROOT_DIR}"
+
 module purge
 module load pytorch-gpu/py3/2.1.1
 
@@ -56,10 +62,10 @@ python -c "import scipy; print('scipy_version=', scipy.__version__)"
 export PYTHONUNBUFFERED=1
 
 VARIANTS=(
-  "free_lbfgs_off benchmarks/configs/benchmark_gaussian_hyp_free_lbfgs_off.yaml configs_jax/config_ADR_jax_t1_gaussian_hyp_free_lbfgs_off.yaml"
-  "free_lbfgs_on benchmarks/configs/benchmark_gaussian_hyp_free_lbfgs_on.yaml configs_jax/config_ADR_jax_t1_gaussian_hyp_free_lbfgs_on.yaml"
-  "ansatz_lbfgs_off benchmarks/configs/benchmark_gaussian_hyp_ansatz_lbfgs_off.yaml configs_jax/config_ADR_jax_t1_gaussian_hyp_ansatz_lbfgs_off.yaml"
-  "ansatz_lbfgs_on benchmarks/configs/benchmark_gaussian_hyp_ansatz_lbfgs_on.yaml configs_jax/config_ADR_jax_t1_gaussian_hyp_ansatz_lbfgs_on.yaml"
+  "free_lbfgs_off ${EXPERIMENT_DIR}/configs/benchmarks/benchmark_gaussian_hyp_free_lbfgs_off.yaml ${EXPERIMENT_DIR}/configs/jax/config_ADR_jax_t1_gaussian_hyp_free_lbfgs_off.yaml"
+  "free_lbfgs_on ${EXPERIMENT_DIR}/configs/benchmarks/benchmark_gaussian_hyp_free_lbfgs_on.yaml ${EXPERIMENT_DIR}/configs/jax/config_ADR_jax_t1_gaussian_hyp_free_lbfgs_on.yaml"
+  "ansatz_lbfgs_off ${EXPERIMENT_DIR}/configs/benchmarks/benchmark_gaussian_hyp_ansatz_lbfgs_off.yaml ${EXPERIMENT_DIR}/configs/jax/config_ADR_jax_t1_gaussian_hyp_ansatz_lbfgs_off.yaml"
+  "ansatz_lbfgs_on ${EXPERIMENT_DIR}/configs/benchmarks/benchmark_gaussian_hyp_ansatz_lbfgs_on.yaml ${EXPERIMENT_DIR}/configs/jax/config_ADR_jax_t1_gaussian_hyp_ansatz_lbfgs_on.yaml"
 )
 SEEDS=(0 1 2)
 
