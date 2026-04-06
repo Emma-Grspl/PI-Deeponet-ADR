@@ -1,3 +1,8 @@
+"""Benchmark support module `benchmarks.aggregate_results`.
+
+This file gathers and post-processes benchmark outputs produced by the ADR comparison workflows.
+"""
+
 import argparse
 import csv
 import os

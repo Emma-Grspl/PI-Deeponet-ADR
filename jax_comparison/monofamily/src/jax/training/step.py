@@ -1,3 +1,8 @@
+"""Training module `jax_comparison.monofamily.src.jax.training.step`.
+
+This file contains optimizer-side logic for the ADR workflow, including training loops, scheduling, or benchmark orchestration.
+"""
+
 from __future__ import annotations
 
 from typing import Dict, Tuple

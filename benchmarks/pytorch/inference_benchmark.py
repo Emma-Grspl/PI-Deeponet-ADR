@@ -1,3 +1,8 @@
+"""PyTorch benchmark entry point `benchmarks.pytorch.inference_benchmark`.
+
+This script configures the PyTorch benchmark workflow and runs the inference benchmark stage for a selected ADR protocol.
+"""
+
 import argparse
 import os
 import sys

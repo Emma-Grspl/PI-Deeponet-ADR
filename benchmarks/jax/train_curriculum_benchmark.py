@@ -1,3 +1,8 @@
+"""JAX benchmark entry point `benchmarks.jax.train_curriculum_benchmark`.
+
+This script configures the JAX benchmark workflow and runs the train curriculum benchmark stage for a selected ADR protocol.
+"""
+
 import argparse
 import os
 import sys

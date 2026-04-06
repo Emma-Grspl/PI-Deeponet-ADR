@@ -1,3 +1,8 @@
+"""Data generation module `src.data.generators`.
+
+This file defines the sampling and batch-construction utilities used to build ADR training or evaluation data.
+"""
+
 import torch
 import numpy as np
 

@@ -1,3 +1,8 @@
+"""JAX benchmark entry point `benchmarks.jax.train_fulltrainer_benchmark`.
+
+This script configures the JAX benchmark workflow and runs the train fulltrainer benchmark stage for a selected ADR protocol.
+"""
+
 import argparse
 import json
 import os

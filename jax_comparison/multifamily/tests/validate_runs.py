@@ -1,3 +1,8 @@
+"""Comparison-layer module `jax_comparison.multifamily.tests.validate_runs`.
+
+This file supports the PyTorch versus JAX comparison workflows, including replicated implementations, scripts, or validation helpers.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

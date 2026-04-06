@@ -1,3 +1,8 @@
+"""JAX benchmark entry point `benchmarks.jax.inference_benchmark`.
+
+This script configures the JAX benchmark workflow and runs the inference benchmark stage for a selected ADR protocol.
+"""
+
 import argparse
 import os
 import sys

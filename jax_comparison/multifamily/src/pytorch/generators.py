@@ -1,3 +1,8 @@
+"""Comparison-layer module `jax_comparison.multifamily.src.pytorch.generators`.
+
+This file supports the PyTorch versus JAX comparison workflows, including replicated implementations, scripts, or validation helpers.
+"""
+
 import torch
 import numpy as np
 

@@ -1,3 +1,8 @@
+"""Comparison-layer module `jax_comparison.monofamily.scripts.jax.inference_benchmark`.
+
+This file supports the PyTorch versus JAX comparison workflows, including replicated implementations, scripts, or validation helpers.
+"""
+
 import argparse
 import os
 import sys

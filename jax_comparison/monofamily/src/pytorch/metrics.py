@@ -1,3 +1,8 @@
+"""Comparison-layer module `jax_comparison.monofamily.src.pytorch.metrics`.
+
+This file supports the PyTorch versus JAX comparison workflows, including replicated implementations, scripts, or validation helpers.
+"""
+
 import torch
 import numpy as np
 import sys

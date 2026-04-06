@@ -1,3 +1,8 @@
+"""Physics module `jax_comparison.monofamily.src.jax.physics.residual_adr`.
+
+This file implements ADR residual terms or other PDE-side computations used by the physics-informed losses.
+"""
+
 from __future__ import annotations
 
 from typing import Dict

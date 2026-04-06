@@ -1,3 +1,8 @@
+"""Training module `jax_comparison.multifamily.src.jax.training.trainer_ADR_JAX`.
+
+This file contains optimizer-side logic for the ADR workflow, including training loops, scheduling, or benchmark orchestration.
+"""
+
 from __future__ import annotations
 
 import copy

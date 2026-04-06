@@ -1,3 +1,8 @@
+"""Shared benchmark utility module `benchmarks.common.eval`.
+
+This file contains reusable helpers for the benchmark stack and computes benchmark evaluation metrics against the CN reference solver.
+"""
+
 import time
 
 import numpy as np

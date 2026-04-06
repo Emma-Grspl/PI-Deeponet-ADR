@@ -1,3 +1,8 @@
+"""PyTorch benchmark entry point `benchmarks.pytorch.train_timemarching_benchmark`.
+
+This script configures the PyTorch benchmark workflow and runs the train timemarching benchmark stage for a selected ADR protocol.
+"""
+
 import argparse
 import copy
 import os

@@ -1,3 +1,8 @@
+"""JAX benchmark entry point `benchmarks.jax.eval_benchmark`.
+
+This script configures the JAX benchmark workflow and runs the eval benchmark stage for a selected ADR protocol.
+"""
+
 import argparse
 import os
 import sys

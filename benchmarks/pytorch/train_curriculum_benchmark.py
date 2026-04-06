@@ -1,3 +1,8 @@
+"""PyTorch benchmark entry point `benchmarks.pytorch.train_curriculum_benchmark`.
+
+This script configures the PyTorch benchmark workflow and runs the train curriculum benchmark stage for a selected ADR protocol.
+"""
+
 import argparse
 import os
 import sys

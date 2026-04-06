@@ -1,3 +1,8 @@
+"""Shared benchmark utility module `benchmarks.common.io`.
+
+This file contains reusable helpers for the benchmark stack and reads and writes benchmark artifacts such as metrics and model outputs.
+"""
+
 import json
 import os
 import pickle

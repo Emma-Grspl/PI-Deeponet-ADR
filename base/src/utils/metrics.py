@@ -1,3 +1,8 @@
+"""Utility module `base.src.utils.metrics`.
+
+This file provides reusable helper functions for metrics, solver utilities, or experiment support in the ADR project.
+"""
+
 import torch
 import numpy as np
 import sys

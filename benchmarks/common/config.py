@@ -1,3 +1,8 @@
+"""Shared benchmark utility module `benchmarks.common.config`.
+
+This file contains reusable helpers for the benchmark stack and loads and normalizes benchmark configuration files.
+"""
+
 import os
 
 import yaml

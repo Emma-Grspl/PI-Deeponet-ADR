@@ -1,3 +1,8 @@
+"""Comparison-layer module `jax_comparison.multifamily.src.jax.config`.
+
+This file supports the PyTorch versus JAX comparison workflows, including replicated implementations, scripts, or validation helpers.
+"""
+
 from pathlib import Path
 from typing import Dict, Optional
 

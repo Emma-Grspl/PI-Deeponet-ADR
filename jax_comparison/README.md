@@ -23,6 +23,17 @@ It is intentionally separated from `base/` so the stable PyTorch workflow can re
 - [multifamily/](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison/multifamily): strict full-task comparison on the three-family ADR problem
 - [monofamily/](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison/monofamily): mono-family diagnostics and targeted ablations
 
+Design choice:
+
+- these folders are organized as self-contained experiment packages with `src/`, `scripts/`, `configs/`, `launch/`, `tests/`, and `plots/`
+- the canonical baseline implementation remains under `base/`
+
+Relationship with `experiments/`:
+
+- `jax_comparison/` contains the comparison-specific code and legacy self-contained packages
+- `experiments/` is the public registry for reproducible comparison protocols and launchers
+- `benchmarks/` contains the shared execution helpers used by those protocols
+
 ## Environment
 
 Install the base environment first:

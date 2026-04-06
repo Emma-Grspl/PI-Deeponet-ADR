@@ -1,3 +1,8 @@
+"""Comparison-layer module `jax_comparison.monofamily.src.pytorch.PI_DeepONet_ADR`.
+
+This file supports the PyTorch versus JAX comparison workflows, including replicated implementations, scripts, or validation helpers.
+"""
+
 import torch
 import torch.nn as nn
 import numpy as np

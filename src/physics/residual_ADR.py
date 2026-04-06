@@ -1,3 +1,8 @@
+"""Physics module `src.physics.residual_ADR`.
+
+This file implements ADR residual terms or other PDE-side computations used by the physics-informed losses.
+"""
+
 import torch
 
 def pde_residual_adr(model, params, xt):

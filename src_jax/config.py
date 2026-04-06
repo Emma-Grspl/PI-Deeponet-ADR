@@ -1,3 +1,8 @@
+"""JAX ADR module `src_jax.config`.
+
+This file belongs to the JAX implementation of the ADR workflow and provides configuration, model, data, physics, or training helpers.
+"""
+
 from pathlib import Path
 from typing import Dict, Optional
 

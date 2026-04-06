@@ -1,3 +1,8 @@
+"""Analysis module `base.src.analyse.inference`.
+
+This file contains analysis or visualization helpers used to inspect ADR predictions against reference solutions.
+"""
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt

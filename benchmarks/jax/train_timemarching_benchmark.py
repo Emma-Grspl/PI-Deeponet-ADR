@@ -1,3 +1,8 @@
+"""JAX benchmark entry point `benchmarks.jax.train_timemarching_benchmark`.
+
+This script configures the JAX benchmark workflow and runs the train timemarching benchmark stage for a selected ADR protocol.
+"""
+
 import argparse
 import copy
 import os

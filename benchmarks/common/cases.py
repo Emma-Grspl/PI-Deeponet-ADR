@@ -1,3 +1,8 @@
+"""Shared benchmark utility module `benchmarks.common.cases`.
+
+This file contains reusable helpers for the benchmark stack and defines benchmark evaluation cases and family sampling rules.
+"""
+
 import numpy as np
 
 

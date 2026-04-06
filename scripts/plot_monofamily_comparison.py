@@ -1,3 +1,8 @@
+"""Top-level script `scripts.plot_monofamily_comparison`.
+
+This file provides a repository-level entry point for training, tuning, or plotting in the ADR project.
+"""
+
 from __future__ import annotations
 
 import json

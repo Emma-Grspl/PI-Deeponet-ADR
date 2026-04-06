@@ -1,3 +1,8 @@
+"""Data generation module `jax_comparison.multifamily.src.jax.data.generators`.
+
+This file defines the sampling and batch-construction utilities used to build ADR training or evaluation data.
+"""
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple

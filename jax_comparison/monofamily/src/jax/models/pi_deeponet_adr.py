@@ -1,3 +1,8 @@
+"""Model definition module `jax_comparison.monofamily.src.jax.models.pi_deeponet_adr`.
+
+This file contains neural network definitions used by the ADR PyTorch or JAX workflows.
+"""
+
 from __future__ import annotations
 
 from typing import Dict, List
