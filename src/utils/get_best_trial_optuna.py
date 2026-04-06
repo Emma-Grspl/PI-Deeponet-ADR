@@ -1,3 +1,8 @@
+"""Utility module `src.utils.get_best_trial_optuna`.
+
+This file provides reusable helper functions for metrics, solver utilities, or experiment support in the ADR project.
+"""
+
 import optuna
 import yaml
 import os

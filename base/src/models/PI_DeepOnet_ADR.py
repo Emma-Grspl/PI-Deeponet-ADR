@@ -1,3 +1,8 @@
+"""Model definition module `base.src.models.PI_DeepOnet_ADR`.
+
+This file contains neural network definitions used by the ADR PyTorch or JAX workflows.
+"""
+
 import torch
 import torch.nn as nn
 import numpy as np
