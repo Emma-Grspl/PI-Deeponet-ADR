@@ -12,6 +12,11 @@ results/
 *.pt
 optuna_study.db
 .pytest_cache/
+slurm/log/
+
+# Artefacts locaux de comparaison
+jax/
+plot/gaussian_hypothesis/
 
 # Fichiers Python compilés
 __pycache__/
