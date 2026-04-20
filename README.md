@@ -1,95 +1,99 @@
-# Physics-Informed DeepONets for Generalizable ADR Solvers
+# Physics-Informed DeepONets for the 1D ADR Equation
 
 [![CI](https://github.com/Emma-Grspl/Physics-Informed-Deep-Operator-Networks-for-Generalizable-ADR-Solvers/actions/workflows/ci.yml/badge.svg)](https://github.com/Emma-Grspl/Physics-Informed-Deep-Operator-Networks-for-Generalizable-ADR-Solvers/actions/workflows/ci.yml)
 
-This repository studies operator learning for a one-dimensional advection-diffusion-reaction problem with parametric initial conditions.
+This branch is the stable PyTorch baseline of the project.
 
-The central equation is
+It focuses on one question:
+
+- can a physics-informed DeepONet learn a reliable surrogate for the one-dimensional advection-diffusion-reaction equation?
+
+## Physical Problem
+
+The target equation is
 
 \[
 u_t + v\,u_x - D\,u_{xx} = \mu (u-u^3),
 \]
 
-where \(v\) is the advection velocity, \(D\) the diffusion coefficient, and \(\mu\) the nonlinear reaction coefficient.
+where:
 
-The repository has two scientific goals:
+- \(v\) is the advection velocity
+- \(D\) is the diffusion coefficient
+- \(\mu\) controls the nonlinear reaction term
 
-- build a reliable PI-DeepONet surrogate for the ADR problem
-- compare PyTorch and JAX under matched protocols on the same task
+The model is trained on a parametric ADR setting with varying physical coefficients and several initial-condition families.
 
-## What This Repository Contains
+## Scientific Goal Of This Branch
 
-This repository intentionally contains two related but distinct tracks.
+This `base` branch is meant to answer whether the PyTorch PI-DeepONet pipeline works as a stable scientific baseline.
 
-### 1. `base/`
+It is therefore the branch to read if you want:
 
-`base/` is the canonical PyTorch ADR pipeline.
+- the canonical PyTorch implementation
+- the reference ADR training pipeline
+- the stable baseline results
+- the branch that best represents the main surrogate-learning work independently of framework comparison
 
-Use it if your question is:
+The PyTorch-versus-JAX comparison belongs to a separate branch, `jax-comparison`.
 
-- does the PI-DeepONet work on the ADR problem?
-- what is the stable reference implementation?
-- what should be cited or reused as the main PyTorch baseline?
+## What This Branch Contains
 
-### 2. `jax_comparison/`
+### Main Scientific Entry Point
 
-`jax_comparison/` is the comparison layer built on top of the PyTorch baseline.
+- [base/](base): canonical PyTorch ADR workflow
 
-Use it if your question is:
+### Supporting Directories
 
-- how does JAX behave relative to PyTorch?
-- what happens on strict multifamily comparison?
-- what do monofamily diagnostics and Gaussian ablations show?
+- [benchmarks/](benchmarks): benchmark runners and evaluation helpers still present in the repository
+- [experiments/](experiments): protocol registry and experiment notes
+- [plot/](plot): figures and curated visual outputs
+- `results/`: runtime outputs and stored run artifacts
 
-### 3. `experiments/`
+### Legacy Compatibility Layer
 
-`experiments/` is the human-facing registry of reproducible protocols.
+Some top-level folders remain because parts of the training and evaluation stack still depend on them:
 
-It groups the configs, launchers, and protocol notes for:
+- `src/`
+- `configs/`
+- `launch/`
+- `scripts/`
 
-- the base PyTorch study
-- the strict multifamily PyTorch vs JAX comparison
-- monofamily diagnostics
-- Gaussian ansatz / LBFGS ablations
+They are active runtime infrastructure, but the recommended human-facing entry point is still `base/`.
 
 ## Reading Order
 
-If you want the repository to feel clear quickly, read it in this order:
+Recommended reading order for this branch:
 
 1. this root `README.md`
 2. [base/README.md](base/README.md)
-3. [jax_comparison/README.md](jax_comparison/README.md)
-4. [experiments/README.md](experiments/README.md)
+3. the main configs under `base/configs/`
+4. the training scripts under `base/scripts/`
+5. the saved plots and assets under `base/plots/` and `base/assets_pytorch/`
 
-Then, depending on your interest:
+## PI-DeepONet Baseline
 
-- [jax_comparison/multifamily/README.md](jax_comparison/multifamily/README.md) for the main framework comparison
-- [jax_comparison/monofamily/README.md](jax_comparison/monofamily/README.md) for diagnostics
-- [experiments/ablations/gaussian_hypothesis/README.md](experiments/ablations/gaussian_hypothesis/README.md) for the Gaussian ablation
+The baseline model is a physics-informed DeepONet trained to approximate the ADR solution operator.
 
-## Scientific Scope
-
-The model learns an operator that maps:
+The model learns a mapping from:
 
 - physical parameters
-- parameters describing the initial condition family
-- a query point \((x,t)\)
+- initial-condition parameters
+- a space-time query point \((x,t)\)
 
-to the corresponding ADR solution value \(u(x,t)\).
+to the solution value \(u(x,t)\).
 
-The study covers several initial-condition families, not a single fixed profile. This is why the repository is centered on generalization rather than on one deterministic simulation.
+The training objective combines:
 
-The reference numerical target is a Crank-Nicolson solver. The neural model is trained in a physics-informed way through a loss that combines:
+- PDE residual loss
+- initial-condition loss
+- boundary-condition loss
 
-- PDE residual
-- initial-condition fit
-- boundary-condition fit
+The reference numerical target is a Crank-Nicolson solver.
 
-## Main Conclusions
+## Main Baseline Result
 
-### Base PyTorch result
-
-The PyTorch PI-DeepONet is the stable scientific baseline of the repository.
+The PyTorch PI-DeepONet is the stable scientific reference of the repository.
 
 On the reference multifamily benchmark with 20 evaluation cases per family:
 
@@ -101,74 +105,12 @@ On the reference multifamily benchmark with 20 evaluation cases per family:
 Interpretation:
 
 - the surrogate is accurate on the target ADR task
-- the model is usable as a fast replacement for the reference solver in this regime
-
-### PyTorch vs JAX
-
-On the strict three-family comparison:
-
-- JAX is much faster in raw training time
-- PyTorch is much better in final solution quality
-
-In this repository, PyTorch is therefore the reliable framework for the main ADR conclusions.
-
-### Gaussian Hypothesis Ablation
-
-The Gaussian-family 2x2x2 ablation compares:
-
-- free learning versus ansatz for the initial condition
-- with and without an L-BFGS finisher
-
-The main conclusion is:
-
-- the ansatz is the dominant improvement
-- L-BFGS does not provide a robust gain in the tested setting
-
-## Repository Map
-
-### Scientific Entry Points
-
-- [base/](base): canonical PyTorch ADR workflow
-- [jax_comparison/](jax_comparison): comparison workspace layered on top of the base pipeline
-- [experiments/](experiments): reproducible experiment registry
-- [benchmarks/](benchmarks): shared benchmark runners and utilities
-
-### Outputs And Assets
-
-- `results/`: active benchmark outputs and run artifacts
-- [plot/](plot): curated figures and visual summaries
-- `assets/`: presentation assets used across the repository
-
-### Legacy Compatibility Layer
-
-The following top-level folders still exist because some active scripts and benchmark runners depend on them directly:
-
-- `src/`
-- `src_jax/`
-- `configs/`
-- `configs_jax/`
-- `launch/`
-- `scripts/`
-
-They are runtime infrastructure, not the best human entry points.
-
-## Branching Model
-
-The intended logical separation is:
-
-- `base`: stable PyTorch ADR branch
-- `jax-comparison`: comparison branch layered on top of `base`
-
-Practical interpretation:
-
-- a change that would still matter if all JAX material were removed belongs conceptually to `base`
-- a change that only exists because of the framework comparison belongs conceptually to `jax-comparison`
-
-The current repository still contains both layers together because it is also used as an integration workspace.
+- the baseline is scientifically usable
+- inference is substantially cheaper than the reference numerical solver
 
 ## Installation
 
-### Base PyTorch environment
+Use the base PyTorch environment:
 
 ```bash
 python -m venv .venv
@@ -176,44 +118,22 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### JAX comparison environment
-
-Install this on top of the base environment:
-
-```bash
-pip install -r requirements-jax.txt
-```
-
-For GPU machines and HPC systems, install the platform-compatible `jax` and `jaxlib` build first, then install the remaining comparison dependencies.
+This branch should remain usable without JAX-specific dependencies.
 
 ## Reproducibility
 
-The public experiment definitions live under `experiments/`.
+Typical artifacts in this branch include:
 
-Typical benchmark artifacts include:
-
+- saved checkpoints
 - training metrics
-- saved checkpoints or serialized parameters
 - evaluation against the Crank-Nicolson reference
 - inference timing summaries
+- analysis figures
 
-Benchmark outputs are organized by:
+The protocol definitions associated with the baseline are documented under [experiments/](experiments), but the baseline scientific implementation itself lives under [base/](base).
 
-- backend
-- benchmark name
-- seed
+## About The Other Markdown Files
 
-The Gaussian Hypothesis ablation is the main study in this repository that is explicitly aggregated across multiple seeds.
+Some other root-level `.md` files are internal maintenance notes related to repository cleanup and branch organization.
 
-## Which README Should Answer What
-
-- [base/README.md](base/README.md): what the stable PyTorch pipeline is and how to interpret it
-- [jax_comparison/README.md](jax_comparison/README.md): what the comparison layer is for
-- [experiments/README.md](experiments/README.md): where reproducible protocols are defined
-- [benchmarks/README.md](benchmarks/README.md): how the benchmark execution layer is organized
-
-## About The Other `.md` Files At The Repository Root
-
-The other root-level Markdown files are internal maintenance notes from the repository cleanup and branch-splitting process.
-
-They are not the recommended entry points for readers, users, or reviewers of the scientific work.
+They are not the primary entry points for readers of the baseline branch.
