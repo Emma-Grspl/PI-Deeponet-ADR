@@ -1,97 +1,91 @@
-# Physics-Informed DeepONets for Generalizable ADR Solvers
+# PyTorch vs JAX for Physics-Informed DeepONets on the 1D ADR Equation
 
 [![CI](https://github.com/Emma-Grspl/Physics-Informed-Deep-Operator-Networks-for-Generalizable-ADR-Solvers/actions/workflows/ci.yml/badge.svg)](https://github.com/Emma-Grspl/Physics-Informed-Deep-Operator-Networks-for-Generalizable-ADR-Solvers/actions/workflows/ci.yml)
 
-This repository studies operator learning for a one-dimensional advection-diffusion-reaction problem with parametric initial conditions.
+This branch is the framework-comparison branch of the project.
 
-The central equation is
+Its purpose is not to present the canonical PyTorch baseline in isolation. Its purpose is to answer a narrower question:
+
+- when training a physics-informed DeepONet on the one-dimensional advection-diffusion-reaction equation, is PyTorch or JAX the better framework in practice?
+
+## Physical Problem
+
+The target equation is
 
 \[
 u_t + v\,u_x - D\,u_{xx} = \mu (u-u^3),
 \]
 
-where \(v\) is the advection velocity, \(D\) the diffusion coefficient, and \(\mu\) the nonlinear reaction coefficient.
+with parametric physical coefficients and several families of initial conditions.
 
-The repository has two scientific goals:
+This branch therefore studies framework behavior on a nontrivial operator-learning problem rather than on a toy scalar regression task.
 
-- build a reliable PI-DeepONet surrogate for the ADR problem
-- compare PyTorch and JAX under matched protocols on the same task
+## Scientific Goal Of This Branch
 
-## What This Repository Contains
+This `jax-comparison` branch exists to compare:
 
-This repository intentionally contains two related but distinct tracks.
+- final solution quality
+- training speed
+- inference speed
+- stability across multifamily and monofamily settings
+- the effect of ansatz-based constraints and L-BFGS finishing
 
-### 1. `base/`
+The stable baseline branch is `base`. This branch should be read as the comparison and interpretation layer added on top of that baseline.
 
-`base/` is the canonical PyTorch ADR pipeline.
+## What This Branch Contains
 
-Use it if your question is:
+### Main Comparison Entry Points
 
-- does the PI-DeepONet work on the ADR problem?
-- what is the stable reference implementation?
-- what should be cited or reused as the main PyTorch baseline?
+- [jax_comparison/](jax_comparison): comparison-specific workspace
+- [jax_comparison/multifamily/README.md](jax_comparison/multifamily/README.md): main strict full-task comparison
+- [jax_comparison/monofamily/README.md](jax_comparison/monofamily/README.md): diagnostic studies and ablations
 
-### 2. `jax_comparison/`
+### Protocol Registry
 
-`jax_comparison/` is the comparison layer built on top of the PyTorch baseline.
+- [experiments/](experiments): reproducible experiment definitions
+- [experiments/multifamily/README.md](experiments/multifamily/README.md): main comparison protocols
+- [experiments/monofamily/README.md](experiments/monofamily/README.md): monofamily protocols
+- [experiments/ablations/gaussian_hypothesis/README.md](experiments/ablations/gaussian_hypothesis/README.md): Gaussian ansatz / LBFGS ablation
 
-Use it if your question is:
+### Benchmark Execution Layer
 
-- how does JAX behave relative to PyTorch?
-- what happens on strict multifamily comparison?
-- what do monofamily diagnostics and Gaussian ablations show?
+- [benchmarks/](benchmarks): shared train / eval / inference runners for both frameworks
 
-### 3. `experiments/`
+### Outputs And Assets
 
-`experiments/` is the human-facing registry of reproducible protocols.
-
-It groups the configs, launchers, and protocol notes for:
-
-- the base PyTorch study
-- the strict multifamily PyTorch vs JAX comparison
-- monofamily diagnostics
-- Gaussian ansatz / LBFGS ablations
+- `results/`: active benchmark outputs and run artifacts
+- [plot/](plot): figure hub
+- `assets/`: curated visual assets
 
 ## Reading Order
 
-If you want the repository to feel clear quickly, read it in this order:
+Recommended reading order on this branch:
 
 1. this root `README.md`
-2. [base/README.md](base/README.md)
-3. [jax_comparison/README.md](jax_comparison/README.md)
-4. [experiments/README.md](experiments/README.md)
+2. [jax_comparison/README.md](jax_comparison/README.md)
+3. [experiments/multifamily/README.md](experiments/multifamily/README.md)
+4. [jax_comparison/multifamily/README.md](jax_comparison/multifamily/README.md)
+5. [jax_comparison/monofamily/README.md](jax_comparison/monofamily/README.md)
+6. [experiments/ablations/gaussian_hypothesis/README.md](experiments/ablations/gaussian_hypothesis/README.md)
 
-Then, depending on your interest:
+If you only care about the main conclusion, go directly to the strict multifamily comparison.
 
-- [jax_comparison/multifamily/README.md](jax_comparison/multifamily/README.md) for the main framework comparison
-- [jax_comparison/monofamily/README.md](jax_comparison/monofamily/README.md) for diagnostics
-- [experiments/ablations/gaussian_hypothesis/README.md](experiments/ablations/gaussian_hypothesis/README.md) for the Gaussian ablation
+## Main Comparison Conclusion
 
-## Scientific Scope
+The central conclusion of this branch is:
 
-The model learns an operator that maps:
+- JAX is much faster in raw training time
+- PyTorch is much better in final solution quality on the actual three-family ADR task
 
-- physical parameters
-- parameters describing the initial condition family
-- a query point \((x,t)\)
+So in this project, PyTorch is the reliable framework for the main scientific result, while JAX is valuable mainly as a comparison target and as a tool for investigating optimization behavior.
 
-to the corresponding ADR solution value \(u(x,t)\).
+## Main Results Snapshot
 
-The study covers several initial-condition families, not a single fixed profile. This is why the repository is centered on generalization rather than on one deterministic simulation.
+### Strict Multifamily Comparison
 
-The reference numerical target is a Crank-Nicolson solver. The neural model is trained in a physics-informed way through a loss that combines:
+This is the principal benchmark of the branch.
 
-- PDE residual
-- initial-condition fit
-- boundary-condition fit
-
-## Main Conclusions
-
-### Base PyTorch result
-
-The PyTorch PI-DeepONet is the stable scientific baseline of the repository.
-
-On the reference multifamily benchmark with 20 evaluation cases per family:
+PyTorch reference result on the strict multifamily task:
 
 - global relative L2: `0.00507 +- 0.00392`
 - Tanh: `0.00139 +- 0.00035`
@@ -100,75 +94,51 @@ On the reference multifamily benchmark with 20 evaluation cases per family:
 
 Interpretation:
 
-- the surrogate is accurate on the target ADR task
-- the model is usable as a fast replacement for the reference solver in this regime
+- the PyTorch surrogate remains accurate on the real target task
+- the matched JAX pipeline is faster, but not competitive in final error quality in this repository
 
-### PyTorch vs JAX
+### Monofamily Diagnostics
 
-On the strict three-family comparison:
+The monofamily studies exist to answer questions such as:
 
-- JAX is much faster in raw training time
-- PyTorch is much better in final solution quality
+- is a family intrinsically difficult?
+- does a hard family remain hard when isolated?
+- does the difficulty come from multifamily generalization or from the family itself?
 
-In this repository, PyTorch is therefore the reliable framework for the main ADR conclusions.
+These results are explanatory, not the main scientific benchmark.
 
 ### Gaussian Hypothesis Ablation
 
-The Gaussian-family 2x2x2 ablation compares:
+The Gaussian ablation isolates two factors:
 
 - free learning versus ansatz for the initial condition
 - with and without an L-BFGS finisher
 
 The main conclusion is:
 
-- the ansatz is the dominant improvement
+- the ansatz is the dominant helpful factor
 - L-BFGS does not provide a robust gain in the tested setting
 
-## Repository Map
+## Branch Identity
 
-### Scientific Entry Points
+This branch is comparison-first.
 
-- [base/](base): canonical PyTorch ADR workflow
-- [jax_comparison/](jax_comparison): comparison workspace layered on top of the base pipeline
-- [experiments/](experiments): reproducible experiment registry
-- [benchmarks/](benchmarks): shared benchmark runners and utilities
+That means:
 
-### Outputs And Assets
+- changes motivated by framework comparison belong here
+- benchmark infrastructure used to compare frameworks belongs here
+- JAX implementation details belong here
+- monofamily diagnostics and Gaussian ablations belong here
 
-- `results/`: active benchmark outputs and run artifacts
-- [plot/](plot): curated figures and visual summaries
-- `assets/`: presentation assets used across the repository
+What does not define this branch:
 
-### Legacy Compatibility Layer
+- the stable PyTorch baseline in isolation
 
-The following top-level folders still exist because some active scripts and benchmark runners depend on them directly:
-
-- `src/`
-- `src_jax/`
-- `configs/`
-- `configs_jax/`
-- `launch/`
-- `scripts/`
-
-They are runtime infrastructure, not the best human entry points.
-
-## Branching Model
-
-The intended logical separation is:
-
-- `base`: stable PyTorch ADR branch
-- `jax-comparison`: comparison branch layered on top of `base`
-
-Practical interpretation:
-
-- a change that would still matter if all JAX material were removed belongs conceptually to `base`
-- a change that only exists because of the framework comparison belongs conceptually to `jax-comparison`
-
-The current repository still contains both layers together because it is also used as an integration workspace.
+That stable baseline belongs conceptually to the `base` branch.
 
 ## Installation
 
-### Base PyTorch environment
+Install the base PyTorch environment first:
 
 ```bash
 python -m venv .venv
@@ -176,44 +146,28 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### JAX comparison environment
-
-Install this on top of the base environment:
+Then add the comparison-layer dependencies:
 
 ```bash
 pip install -r requirements-jax.txt
 ```
 
-For GPU machines and HPC systems, install the platform-compatible `jax` and `jaxlib` build first, then install the remaining comparison dependencies.
+For GPU machines and HPC systems, install the platform-compatible `jax` and `jaxlib` build first, then install the remaining dependencies.
 
 ## Reproducibility
 
-The public experiment definitions live under `experiments/`.
-
-Typical benchmark artifacts include:
+This branch is organized around reproducible benchmark artifacts such as:
 
 - training metrics
 - saved checkpoints or serialized parameters
 - evaluation against the Crank-Nicolson reference
 - inference timing summaries
+- benchmark summaries aggregated by backend and seed
 
-Benchmark outputs are organized by:
+The public protocol definitions live under [experiments/](experiments).
 
-- backend
-- benchmark name
-- seed
+## About The Other Root Markdown Files
 
-The Gaussian Hypothesis ablation is the main study in this repository that is explicitly aggregated across multiple seeds.
+Other root-level `.md` files are internal maintenance notes related to cleanup and branch organization.
 
-## Which README Should Answer What
-
-- [base/README.md](base/README.md): what the stable PyTorch pipeline is and how to interpret it
-- [jax_comparison/README.md](jax_comparison/README.md): what the comparison layer is for
-- [experiments/README.md](experiments/README.md): where reproducible protocols are defined
-- [benchmarks/README.md](benchmarks/README.md): how the benchmark execution layer is organized
-
-## About The Other `.md` Files At The Repository Root
-
-The other root-level Markdown files are internal maintenance notes from the repository cleanup and branch-splitting process.
-
-They are not the recommended entry points for readers, users, or reviewers of the scientific work.
+They are not the primary entry points for understanding the comparison results.
