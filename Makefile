@@ -4,19 +4,19 @@ PYTHON ?= python
 
 install:
 	$(PYTHON) -m pip install --upgrade pip
-	$(PYTHON) -m pip install -r requirements.txt pytest
+	$(PYTHON) -m pip install -r requirements-base.txt pytest
 
 test:
-	$(PYTHON) -m pytest -q
+	$(PYTHON) -m pytest -q code/tests
 
 check:
-	$(PYTHON) -m compileall scripts src test
+	$(PYTHON) -m compileall code/scripts code/src code/tests
 
 analysis:
-	$(PYTHON) src/analyse/global_analyse_PI_DeepOnet_vs_CN.py
+	$(PYTHON) code/src/analyse/global_analyse_PI_DeepOnet_vs_CN.py
 
 benchmark:
-	$(PYTHON) src/analyse/inference.py
+	$(PYTHON) code/src/analyse/inference.py
 
 train:
-	$(PYTHON) scripts/train.py
+	$(PYTHON) code/scripts/train.py

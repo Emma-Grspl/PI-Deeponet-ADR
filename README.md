@@ -1,296 +1,306 @@
-# PyTorch Baseline for Physics-Informed DeepONets on the 1D ADR Equation
+# Base PyTorch ADR Pipeline
 
-[![CI](https://github.com/Emma-Grspl/Physics-Informed-Deep-Operator-Networks-for-Generalizable-ADR-Solvers/actions/workflows/ci.yml/badge.svg)](https://github.com/Emma-Grspl/Physics-Informed-Deep-Operator-Networks-for-Generalizable-ADR-Solvers/actions/workflows/ci.yml)
+Cette branche constitue la branche de référence PyTorch du projet. Elle présente la version canonique du modèle PI-DeepONet appliqué à l’équation d’advection-diffusion-réaction paramétrique, sans la couche complète d’organisation dédiée à la comparaison JAX contre PyTorch.
 
-This branch is the stable PyTorch baseline of the project.
+## Introduction
 
-Its role is simple:
-
-- establish that the PI-DeepONet approach works on the one-dimensional advection-diffusion-reaction problem
-- provide the main scientific reference implementation
-- expose the key baseline results directly at branch root
-
-If someone opens only this branch during an interview or a technical review, they should be able to understand the problem, the method, the protocol, the results, and the limitations without searching elsewhere.
-
-## Executive Summary
-
-This branch shows that a PyTorch physics-informed DeepONet can learn a reliable surrogate for a parametric 1D advection-diffusion-reaction equation.
-
-Main takeaways:
-
-- the baseline works on the real multifamily ADR task, not only on a toy case
-- the best reference result is strong enough to justify the overall project
-- the surrogate is much faster at inference than the Crank-Nicolson reference solver
-- difficulty is not uniform across initial-condition families, and this matters for interpretation
-
-Reference multifamily result:
-
-- global relative L2: `0.00507 +- 0.00392`
-- Tanh: `0.00139 +- 0.00035`
-- Sin-Gauss: `0.00978 +- 0.00286`
-- Gaussian: `0.00405 +- 0.00100`
-- training time: about `5329 s`
-- time-jump speedup vs Crank-Nicolson: about `x175`
-
-## Problem Setting
-
-The physical problem is the one-dimensional advection-diffusion-reaction equation
+Le problème physique étudié dans cette branche est une équation d’advection-diffusion-réaction unidimensionnelle de la forme
 
 \[
-u_t + v\,u_x - D\,u_{xx} = \mu (u-u^3),
+u_t + v\,u_x - D\,u_{xx} = \mu (u-u^3).
 \]
 
-where:
+La quantité \(u(x,t)\) dépend de la position \(x\) et du temps \(t\). Les différents termes de l’équation ont une interprétation physique simple.
 
-- \(v\) is the advection velocity
-- \(D\) is the diffusion coefficient
-- \(\mu\) controls the nonlinear reaction term
+- \(u_t\) décrit l’évolution temporelle de la solution.
+- \(v\,u_x\) représente l’advection, c’est-à-dire le transport de la quantité étudiée.
+- \(D\,u_{xx}\) représente la diffusion, qui tend à lisser spatialement la solution.
+- \(\mu (u-u^3)\) représente un terme de réaction non linéaire cubique.
 
-This equation combines three mechanisms:
+Ce type d’équation intervient dans des problèmes où une grandeur est à la fois transportée, diffusée et transformée localement. Dans ce projet, l’objectif n’est pas de résoudre un cas unique, mais de construire un surrogate neural capable de généraliser sur une famille de problèmes ADR paramétriques.
 
-- transport through advection
-- spatial smoothing through diffusion
-- local nonlinear dynamics through reaction
+## Présentation du Squelette de la Branche
 
-The task is parametric. The model must not solve a single fixed PDE instance. It must learn a surrogate over varying physical coefficients and varying initial conditions.
+Cette branche est organisée comme une branche baseline-only. Elle ne cherche pas à porter toute la couche de comparaison inter-frameworks. Sa logique est de rendre lisible et reproductible le pipeline PyTorch de référence.
 
-The initial conditions are drawn from several families:
+- `code/`: code source, configurations, scripts de lancement et tests
+- `figures/`: figures de référence du solveur classique, du PI-DeepONet seul, et des comparaisons PI-DeepONet vs Crank-Nicolson
+- `assets/`: visuels les plus représentatifs pour une lecture rapide
+- `models/`: poids sauvegardés de référence
+- `README.md`: présentation scientifique complète de la branche
+- `Makefile`: commandes utilitaires usuelles
+- `requirements-base.txt`: environnement Python de référence pour cette branche
+
+Le lecteur qui arrive sur cette branche doit pouvoir comprendre rapidement :
+
+1. quel problème physique est traité ;
+2. quelle architecture est utilisée ;
+3. comment l’entraînement est organisé ;
+4. quels résultats doivent être considérés comme les résultats PyTorch de référence.
+
+## Formulation du Problème ADR Paramétrique
+
+Le problème étudié est paramétrique. Le réseau n’apprend donc pas une solution unique, mais un opérateur capable de prédire la solution pour différentes combinaisons de paramètres physiques et de conditions initiales.
+
+Les coefficients physiques varient dans les intervalles suivants :
+
+- \(v \in [0.5, 1.0]\)
+- \(D \in [0.01, 0.2]\)
+- \(\mu \in [0.0, 1.0]\)
+
+Les conditions initiales sont également paramétrées :
+
+- \(A \in [0.7, 1.0]\)
+- \(\sigma \in [0.4, 0.8]\)
+- \(k \in [1.0, 3.0]\)
+- \(x_0 = 0\)
+
+Le domaine spatial est
+
+\[
+x \in [-5, 8],
+\]
+
+et l’horizon temporel de la baseline complète est
+
+\[
+T_{\max} = 3.0.
+\]
+
+La discrétisation de référence utilisée pour les audits de la baseline est :
+
+- \(N_x = 500\)
+- \(N_t = 200\)
+
+Trois familles principales de conditions initiales sont considérées :
 
 - `Tanh`
 - `Sin-Gauss`
 - `Gaussian`
 
-That multifamily setting is essential. It is what makes the baseline scientifically interesting and what separates it from a narrow proof-of-concept.
+Cette diversité de familles est essentielle. Elle permet d’évaluer la capacité du modèle à généraliser sur des régimes qualitativement différents, plutôt que sur une seule forme initiale.
 
-## What This Branch Is Meant To Prove
+## Solveur Numérique de Référence : Crank-Nicolson
 
-This branch answers one question:
+Les prédictions du réseau sont évaluées contre un solveur numérique de référence de type Crank-Nicolson.
 
-- can a PyTorch PI-DeepONet serve as a scientifically usable baseline for the parametric ADR problem?
+Crank-Nicolson est un schéma implicite classique de discrétisation temporelle pour les équations aux dérivées partielles dépendant du temps. Il présente un bon compromis entre stabilité numérique et précision, ce qui en fait une référence pertinente pour évaluer un surrogate neural.
 
-It does not try to answer:
+Dans cette branche, le solveur Crank-Nicolson joue deux rôles :
 
-- whether JAX is faster or better
-- whether framework-level conclusions hold under matched protocols
-- which backend is preferable overall
+- fournir la vérité terrain numérique contre laquelle les prédictions du réseau sont comparées ;
+- servir de baseline temporelle pour mesurer le gain d’inférence du PI-DeepONet.
 
-Those questions belong to the `jax-comparison` branch.
+L’intérêt scientifique de ce choix est important : la qualité du réseau n’est pas jugée uniquement à partir de sa loss d’entraînement, mais par rapport à une solution numérique de référence issue d’une méthode bien établie.
 
-## Model And Training Logic
+## Description du Réseau de Neurones Utilisé
 
-The baseline model is a physics-informed DeepONet.
+Le modèle utilisé dans cette branche est un PI-DeepONet, c’est-à-dire un Deep Operator Network entraîné avec une contrainte physique explicite via le résidu de l’équation ADR.
 
-It learns an operator that maps:
+L’architecture repose sur une séparation branch/trunk.
 
-- physical parameters
-- initial-condition parameters
-- a query point \((x,t)\)
+- La branche `branch` encode les paramètres physiques et les paramètres décrivant la condition initiale.
+- La branche `trunk` encode les coordonnées du point d’évaluation \((x,t)\).
+- Les deux représentations sont fusionnées par des transformations conditionnelles de type FiLM.
 
-to the solution value \(u(x,t)\).
+Les dimensions d’entrée sont :
 
-The network follows the standard branch/trunk decomposition:
+- branche : 8 variables \((v, D, \mu, type, A, x_0, \sigma, k)\)
+- trunk : 2 variables \((x,t)\)
 
-- the branch processes the ADR coefficients and the parameters describing the initial condition
-- the trunk processes the space-time coordinates
-- the final prediction combines both representations
+L’architecture de référence est :
 
-In this project, the baseline is strengthened by two design choices:
+- profondeur branch : 5
+- profondeur trunk : 4
+- largeur branch : 256
+- largeur trunk : 256
+- dimension latente : 256
+- nombre de Fourier features : 20
+- échelles de Fourier : \(0, 1, 2, 3, 4, 5, 6, 8, 10, 12\)
+- activation : SiLU
 
-- a multiscale Fourier encoding on the space-time input
-- conditional modulation so that the space-time representation adapts to the physical regime
+Le trunk utilise un encodage de Fourier multiscale afin d’améliorer la représentation de structures oscillantes ou localisées, en particulier pour les familles `Sin-Gauss` et `Gaussian`.
 
-The training objective is physics-informed and combines:
+La fonction de coût combine trois termes :
 
-- PDE residual loss
-- initial-condition loss
-- boundary-condition loss
+- perte de résidu PDE ;
+- perte sur la condition initiale ;
+- perte sur les conditions aux bords.
 
-The reference numerical target used for evaluation is a Crank-Nicolson solver.
+L’optimisation principale est réalisée avec Adam. La branche comporte également un mécanisme de finisher L-BFGS dans certaines phases de polissage. La learning rate de référence est d’environ \(6.08 \times 10^{-5}\), avec une décroissance explicite au cours des phases longues d’entraînement.
 
-## Baseline Protocol
+Les hyperparamètres principaux de la baseline sont :
 
-The baseline protocol is not a single flat training loop. It uses a staged logic designed to stabilize learning on a hard parametric PDE.
+- batch size : 8192
+- nombre de points échantillonnés : 12288
+- warmup : 7000 itérations
+- itérations par fenêtre temporelle : 8000
+- itérations de correction : 9000
+- nombre de boucles externes : 3
+- rolling window : 2000
+- nombre maximal de retries : 4
 
-The main steps are:
+## Protocole Expérimental du Modèle de Base
 
-1. warm up the model on the initial condition
-2. train progressively in time rather than solving the full horizon at once
-3. audit the model regularly against the numerical reference
-4. identify hard cases and hard families
-5. run targeted correction phases when needed
-6. finish with a stricter polishing stage
+L’objectif de l’entraînement de la baseline est de construire un surrogate PyTorch fiable sur l’ensemble du problème ADR paramétrique, et non seulement sur un cas simple ou une famille isolée.
 
-This matters because the branch is meant to demonstrate not only that the model can fit, but that a reproducible and robust training procedure exists.
+La stratégie d’entraînement est progressive. Elle repose sur un curriculum temporel et sur plusieurs mécanismes de contrôle visant à stabiliser l’apprentissage.
 
-## Reference Configuration
+Les mécanismes principaux sont :
 
-The canonical baseline uses the following overall structure:
+- `warmup` initial sur la condition initiale ;
+- entraînement par fenêtres temporelles successives ;
+- stratégie `king of the hill` pour conserver le meilleur état du modèle ;
+- `rollback` et retry lorsqu’une fenêtre ne satisfait pas les critères de validation ;
+- ajustement adaptatif du poids PDE par heuristique inspirée du NTK ;
+- correction ciblée sur les familles difficiles détectées lors des audits ;
+- phase finale de polissage plus stricte.
 
-- branch depth: `5`
-- trunk depth: `4`
-- branch width: `256`
-- trunk width: `256`
-- latent dimension: `256`
-- Fourier features: `20`
+Le curriculum temporel de la baseline est défini par trois zones :
 
-Representative training parameters for the stable baseline pipeline:
+- de \(t=0\) à \(t=0.05\) : pas de temps \(0.01\)
+- de \(t=0.05\) à \(t=0.30\) : pas de temps \(0.05\)
+- de \(t=0.30\) à \(t=3.0\) : pas de temps \(0.10\)
 
-- batch size: `8192`
-- sampled collocation points per draw: `12288`
-- warmup iterations: `7000`
-- iterations per time step: `8000`
-- correction iterations: `9000`
-- number of correction loops: `3`
-- initial-condition threshold: `0.02`
-- per-step threshold: `0.03`
-- target horizon in the long baseline workflow: `T_max = 3.0`
+Les poids de loss de départ et d’arrivée jouent un rôle important :
 
-The comparison-oriented short benchmark used as the visible reference result in this repository is stricter and smaller:
+- poids initial de la condition initiale : 2000
+- poids final de la condition initiale : 100
+- poids des bords : 200
+- poids PDE initial : 500
 
-- target horizon: `T_max = 1.0`
-- batch size: `4096`
-- sampled collocation points per draw: `4096`
-- warmup iterations: `5000`
-- iterations per step: `2500`
-- correction iterations: `4000`
-- number of correction loops: `1`
-- evaluation set: `20` cases per family
-- benchmark seed: `0`
+Les critères de validation utilisés dans les audits sont :
 
-This distinction is important:
+- seuil condition initiale : 0.02
+- seuil étape temporelle : 0.03
 
-- the long baseline workflow shows the full training philosophy
-- the short benchmark provides the clean reference number used for branch-level communication
+L’idée centrale de ce protocole est que la convergence est définie par la qualité effective de la solution produite, et pas seulement par la baisse d’une loss globale. Cette logique fait de la branche `base` une vraie baseline scientifique, et pas seulement un script d’entraînement.
 
-## Main Results
+## Résultats Numériques du Modèle de Base
 
-### Multifamily Reference Result
+La conclusion principale de cette branche est positive : le PI-DeepONet PyTorch apprend un surrogate de bonne qualité pour le problème ADR multifamille.
 
-This is the main result of the branch.
+Sur le benchmark multifamille de référence avec 20 cas d’évaluation par famille, les résultats obtenus sont :
 
-On the strict three-family benchmark with 20 evaluation cases per family:
+- erreur relative \(L^2\) globale : `0.00507 ± 0.00392`
+- `Tanh` : `0.00139 ± 0.00035`
+- `Sin-Gauss` : `0.00978 ± 0.00286`
+- `Gaussian` : `0.00405 ± 0.00100`
 
-- global relative L2: `0.00507 +- 0.00392`
-- Tanh: `0.00139 +- 0.00035`
-- Sin-Gauss: `0.00978 +- 0.00286`
-- Gaussian: `0.00405 +- 0.00100`
+Les mesures d’inférence donnent :
 
-Interpretation:
+- temps d’inférence full grid : `0.210 s`
+- temps d’inférence en saut temporel : `0.00285 s`
+- temps du solveur Crank-Nicolson de référence : `0.499 s`
+- speedup en saut temporel : `×175.03`
 
-- the model is accurate on the actual target task
-- the baseline is not limited to a single easy family
-- `Sin-Gauss` is the hardest family within the successful multifamily setting
+Le temps total d’entraînement du benchmark multifamille court correspondant est :
 
-### Inference Value
+- temps total : `5329.21 s`
 
-The baseline is useful not only because it is accurate, but because it is fast once trained.
+Interprétation scientifique :
 
-On the reference benchmark:
+- la précision globale est suffisamment faible pour faire du modèle un surrogate crédible ;
+- le modèle généralise bien sur plusieurs familles de conditions initiales ;
+- la famille `Sin-Gauss` reste la plus difficile ;
+- le gain d’inférence justifie l’intérêt pratique du surrogate.
 
-- PyTorch training time: about `5329 s`
-- full-grid inference time: about `0.210 s`
-- time-jump inference time: about `0.00285 s`
-- Crank-Nicolson reference time: about `0.499 s`
-- time-jump speedup vs Crank-Nicolson: about `x175`
+Cette section constitue le résultat principal de la branche `base`.
 
-This is the practical value of the branch:
+## Résultats Numériques JAX
 
-- a reliable surrogate is obtained
-- inference becomes dramatically cheaper than the classical solver
+Cette branche n’est pas la branche de comparaison, mais il reste utile de situer la baseline PyTorch par rapport aux résultats JAX obtenus sous protocole apparié.
 
-## Family-Wise Analysis
+Sur le benchmark multifamille strict de comparaison, les résultats JAX observés sont :
 
-The baseline branch is strongest on the multifamily reference task, but family-wise diagnostics are important to understand what is easy and what is hard.
+- erreur relative \(L^2\) globale : `1.66884 ± 1.62812`
+- `Tanh` : `1.23642 ± 0.15997`
+- `Sin-Gauss` : `2.63937 ± 2.54170`
+- `Gaussian` : `1.13073 ± 0.21905`
 
-Monofamily PyTorch results:
+Les mesures de temps correspondantes sont :
 
-- `Tanh` only: `0.00158 +- 0.00048`
-- `Sin-Gauss` only: about `1.00000`
-- `Gaussian` only: `0.87212 +- 0.01769`
+- temps d’inférence full grid : `0.249 s`
+- temps d’inférence en saut temporel : `0.01079 s`
+- speedup vs Crank-Nicolson : `×45.38`
+- temps total d’entraînement : `349.13 s`
 
-Interpretation:
+L’analyse par famille et par ablation montre globalement que :
 
-- `Tanh` is easy for the model
-- `Sin-Gauss` is intrinsically difficult
-- `Gaussian` is also hard when learned freely in isolation
+- JAX entraîne plus vite ;
+- PyTorch produit des solutions nettement plus fiables dans le protocole de référence ;
+- les familles `Sin-Gauss` et `Gaussian` concentrent l’essentiel de la difficulté ;
+- l’introduction d’un ansatz sur la condition initiale améliore fortement les cas les plus difficiles, davantage qu’un simple polissage L-BFGS.
 
-These monofamily numbers are not the main headline of the branch, but they explain why the multifamily result is nontrivial.
+Cette section est donnée ici comme élément de contexte, mais la discussion détaillée de ces résultats relève de la branche `jax-comparison`.
 
-## Ansatz-Focused Results
+## Bilan
 
-The repository also contains targeted experiments showing that explicit structure on the initial condition can strongly change performance.
+La branche `base` permet d’établir trois conclusions principales.
 
-Key PyTorch ansatz results:
+Premièrement, un PI-DeepONet PyTorch correctement structuré permet d’apprendre un surrogate précis pour l’équation ADR paramétrique. Deuxièmement, cette précision s’accompagne d’un gain d’inférence significatif par rapport au solveur Crank-Nicolson de référence. Troisièmement, la baseline PyTorch constitue la base scientifique solide du projet, sur laquelle viennent ensuite se greffer les comparaisons méthodologiques et les ablations.
 
-- `Sin-Gauss` with ansatz: `0.86448 +- 0.13245`
-- `Gaussian` with ansatz: `0.07643 +- 0.02998`
+Autrement dit, cette branche répond à la question fondamentale : est-ce que l’approche fonctionne réellement sur le problème cible ? La réponse est oui.
 
-Interpretation:
+## Logique d’Utilisation de la Branche
 
-- the ansatz brings only a limited gain on `Sin-Gauss`
-- the ansatz changes the Gaussian case dramatically
-- a large part of the Gaussian difficulty comes from how the initial condition is represented and enforced
+L’environnement de cette branche est volontairement limité à la baseline PyTorch.
 
-This is an important scientific message of the repository:
-
-- performance depends not only on optimizer choice or raw model size
-- it also depends strongly on how the initial condition is embedded into the learning problem
-
-## What This Branch Establishes
-
-This branch supports the following conclusions:
-
-- a PI-DeepONet can learn the ADR operator with strong accuracy
-- the PyTorch implementation is reliable enough to serve as the reference baseline
-- multifamily generalization is achievable on the target task
-- inference speedup is one of the practical strengths of the surrogate
-
-## Limitations
-
-The branch is strong as a baseline, but it still has limitations that should be stated clearly.
-
-Scientific limitations:
-
-- difficulty varies sharply across initial-condition families
-- the baseline demonstrates empirical success, not a theoretical explanation of generalization
-- some targeted hard cases remain far less satisfactory than the main multifamily result
-
-Repository limitations:
-
-- the repository still contains integration-era folders inherited from broader experimental work
-- the branch is readable, but not yet a perfectly minimal standalone package
-- some supporting material remains in the repository because the project evolved through active research rather than through a clean-slate product design
-
-These limitations do not weaken the main baseline conclusion, but they help explain the current repository shape.
-
-## What To Read In This Branch
-
-If you want a fast scientific overview:
-
-1. this README
-2. the result figures under `assets/`
-3. the baseline subtree under `base/`
-
-If you want the implementation details:
-
-1. `base/`
-2. `base/configs/`
-3. `base/scripts/`
-4. `src/` and `configs/` for shared runtime infrastructure
-
-The intended reading rule is simple:
-
-- this root README is the complete branch-level summary
-- the rest of the branch exists to support or reproduce it
-
-## Environment
-
-Use the PyTorch environment:
+Installation recommandée :
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-base.txt
 ```
 
-This baseline branch is intended to remain usable without JAX-specific dependencies.
+Commandes utiles :
+
+Installer les dépendances :
+
+```bash
+make install
+```
+
+Lancer les tests :
+
+```bash
+make test
+```
+
+Vérifier la compilation du code :
+
+```bash
+make check
+```
+
+Lancer l’entraînement principal :
+
+```bash
+make train
+```
+
+Lancer l’analyse globale PI-DeepONet vs Crank-Nicolson :
+
+```bash
+make analysis
+```
+
+Lancer le benchmark d’inférence :
+
+```bash
+make benchmark
+```
+
+Points d’entrée directs :
+
+- entraînement : `python code/scripts/train.py`
+- tuning : `python code/scripts/tune_optuna.py`
+- tests : `python -m pytest -q code/tests`
+
+Navigation recommandée :
+
+1. lire ce `README.md` ;
+2. regarder `code/configs/` ;
+3. lire `code/scripts/` et `code/src/training/` ;
+4. consulter `figures/`, `assets/` et `models/`.
