@@ -29,7 +29,7 @@ The `main` branch is the integration branch of the project. It is organized so t
 - `figures/`: curated scientific figures grouped by theme
 - `assets/`: a short selection of the most representative visuals for quick inspection
 - `models/`: root-level reference models exposed at repository level
-- `Project_structure.md`: detailed map of the repository structure
+- `PROJECT_STRUCTURE.md`: detailed map of the repository structure
 
 The project also uses three main branches with distinct roles.
 
@@ -424,4 +424,4 @@ python jax_vs_pytorch/code/code_experiments/build_curated_figures.py
 - If you want the stable scientific baseline, start with `base/`.
 - If you want the framework comparison and the ablations, go to `jax_vs_pytorch/`.
 - If you want a concise visual overview, inspect `assets/`.
-- If you want a full folder-by-folder map, read `Project_structure.md`.
+- If you want a full folder-by-folder map, read `PROJECT_STRUCTURE.md`.
