@@ -9,8 +9,8 @@ PI-DeepONet benchmark for ADR systems.
 This project combines scientific ML, operator learning, benchmarking, and reproducible engineering.
 
 ### Key Results
-- Relative L2 error: **0.00507**
-- Inference speedup: **×21** vs Crank-Nicolson
+- Relative L2 error: **0.0170**
+- Time jumping speedup: **×21** vs Crank-Nicolson
 - Strong generalization across 3 initial-condition families
 - Full PyTorch vs JAX benchmark included
 
@@ -114,24 +114,22 @@ Full multifamily benchmark with 1000 evaluation cases per family:
 - `Sin-Gauss`: `0.0320 ± 0.0200`
 - `Gaussian`: `0.0148 ± 0.0100`
 
-Inference benchmark:
+Time jump benchmark:
 
-- full-grid inference time: `0.210 s`
-- time-jump inference time: `0.00285 s`
-- Crank-Nicolson reference time: `0.499 s`
-- speedup on time-jump inference: `×175.03`
+- full-grid inference time: `3.79 s`
+- time-jump inference time: `0.034 s`
+- Crank-Nicolson reference time: `0.7 s`
+- speedup on time-jump inference: `×21`
 
 Training time for the short multifamily baseline protocol (for $T_{max}$ = 1}:
 
 - total training time: `5329.21 s`
 
-![Generalization](assets/base/base_global_mean_L2.png)
-
 Scientific takeaway:
 
 - the baseline PyTorch PI-DeepONet is accurate enough to act as a surrogate in the tested regime
 - most of the remaining error is concentrated in the `Sin-Gauss` family
-- inference is substantially faster than the classical solver
+- time jumping is substantially faster than the classical solver
 
 ## PyTorch vs JAX
 
@@ -141,9 +139,9 @@ JAX trains faster but underperformed on the matched multifamily benchmark used i
 
 Strict multifamily benchmark:
 
-- PyTorch global relative \(L^2\): `0.00507 ± 0.00392`
+- PyTorch global relative \(L^2\): `0.0170 ± 0.00392`
 - JAX global relative \(L^2\): `1.66884 ± 1.62812`
-- PyTorch time-jump speedup: `×175.03`
+- PyTorch time-jump speedup: `×21`
 - JAX time-jump speedup: `×45.38`
 - PyTorch training time: `5329.21 s`
 - JAX training time: `349.13 s`
