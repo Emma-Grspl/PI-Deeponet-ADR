@@ -8,16 +8,16 @@ This branch is the dedicated comparison branch of the project. Its purpose is no
 
 The physical problem studied in this branch is the one-dimensional advection-diffusion-reaction equation
 
-\[
+$$
 u_t + v\,u_x - D\,u_{xx} = \mu (u-u^3).
-\]
+$$
 
 This equation describes the evolution of a quantity \(u(x,t)\) under the combined action of three physical mechanisms.
 
-- \(u_t\) represents the time evolution of the solution.
-- \(v\,u_x\) is the advective transport term, controlled by the velocity \(v\).
-- \(D\,u_{xx}\) is the diffusion term, controlled by the diffusion coefficient \(D\).
-- \(\mu (u-u^3)\) is a cubic nonlinear reaction term, controlled by \(\mu\).
+- $u_t$ represents the time evolution of the solution.
+- $v,u_x$ is the advective transport term, controlled by the velocity \(v\).
+- $D\,u_{xx}$ is the diffusion term, controlled by the diffusion coefficient \(D\).
+- $\mu (u-u^3)$ is a cubic nonlinear reaction term, controlled by \(\mu\).
 
 ADR equations arise in many modeling settings involving simultaneous transport, diffusion, and local transformation, including concentration transport, simplified reaction systems, and broader parametric PDE benchmark problems. In this project, the goal is not to solve one fixed instance, but to learn a surrogate that generalizes across a family of physical coefficients and initial conditions.
 
@@ -45,16 +45,16 @@ The problem is parametric rather than single-instance. The model is therefore as
 
 The physical coefficients vary over the following ranges:
 
-- \(v \in [0.5, 1.0]\)
-- \(D \in [0.01, 0.2]\)
-- \(\mu \in [0.0, 1.0]\)
+- $\(v \in [0.5, 1.0]\)$
+- $\(D \in [0.01, 0.2]\)$
+- $\(\mu \in [0.0, 1.0]\)$
 
 The initial conditions are also parameterized:
 
-- amplitude \(A \in [0.7, 1.0]\)
-- center \(x_0\), used to position the profile
-- width \(\sigma \in [0.4, 0.8]\)
-- frequency or slope \(k \in [1.0, 3.0]\), depending on the family
+- amplitude $\(A \in [0.7, 1.0]\)$
+- center $\(x_0\)$, used to position the profile
+- width $\(\sigma \in [0.4, 0.8]\)$
+- frequency or slope $\(k \in [1.0, 3.0]\)$, depending on the family
 
 Three main families of initial conditions are considered:
 
@@ -62,7 +62,7 @@ Three main families of initial conditions are considered:
 - `Sin-Gauss`
 - `Gaussian`
 
-The domain is one-dimensional in space, and the time horizon depends on the protocol. The main strict comparison is carried out on a short horizon with \(T_{\max}=1.0\), so that the comparison remains closely matched between frameworks. The numerical reference discretization is chosen to produce a reliable ground truth against which both neural implementations can be evaluated.
+The domain is one-dimensional in space, and the time horizon depends on the protocol. The main strict comparison is carried out on a short horizon with $\(T_{\max}=1.0\)$, so that the comparison remains closely matched between frameworks. The numerical reference discretization is chosen to produce a reliable ground truth against which both neural implementations can be evaluated.
 
 This makes the task a genuine operator-learning problem: the goal is not just to predict one solution, but to learn a mapping from physical parameters, initial-condition parameters, and space-time coordinates \((x,t)\) to the value of the solution.
 
